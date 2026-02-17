@@ -1,4 +1,4 @@
-# Script `backup_pbs.sh`
+# Script `cli/backup_pbs.sh`
 
 Ce script permet de réaliser des sauvegardes de dossiers locaux vers un serveur Proxmox Backup Server (PBS), en utilisant soit le client natif (`proxmox-backup-client` via apt), soit un conteneur Docker. Il propose également un mode de vérification de la connexion à PBS.
 
@@ -15,7 +15,7 @@ Ce script permet de réaliser des sauvegardes de dossiers locaux vers un serveur
 
 ### Sauvegarde
 ```bash
-./backup_pbs.sh "nom-backup" [-d /chemin]... [-e /chemin]... [/chemin...]
+cli/backup_pbs.sh "nom-backup" [-d /chemin]... [-e /chemin]... [/chemin...]
 ```
 - `nom-backup` : identifiant de la sauvegarde
 - `-d /chemin` : dossier à sauvegarder (peut être répété)
@@ -24,18 +24,18 @@ Ce script permet de réaliser des sauvegardes de dossiers locaux vers un serveur
 
 **Exemples :**
 ```bash
-./backup_pbs.sh host-prod /etc /var/lib/app
-./backup_pbs.sh host-prod -d /etc -d /var/lib/app -e /var/lib/app/cache
+cli/backup_pbs.sh host-prod /etc /var/lib/app
+cli/backup_pbs.sh host-prod -d /etc -d /var/lib/app -e /var/lib/app/cache
 ```
 
 ### Test de connexion
 ```bash
-./backup_pbs.sh --check
+cli/backup_pbs.sh --check
 ```
 Teste la connexion à PBS et affiche le résultat du test.
 
 ## Configuration
-Le fichier `backup.conf` doit être présent dans le même dossier que le script. Il doit définir au minimum :
+Le fichier `cli/backup.conf` doit être présent dans le même dossier que le script. Il doit définir au minimum :
 - `PBS_REPOSITORY` : URL du dépôt PBS
 - `PBS_PASSWORD` ou `PBS_PASSWORD_FILE` : mot de passe ou fichier contenant le mot de passe
 

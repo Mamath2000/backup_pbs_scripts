@@ -1,6 +1,6 @@
 # Ignorer les fichiers de configuration sensibles et les fichiers générés
 .env
-backup.conf
+cli/backup.conf
 *.log
 __pycache__/
 *.pyc
@@ -15,5 +15,4 @@ build/
 dist/
 *.egg-info/
 # Docker
-backup_pbs/pbs_client/.env
-backup_pbs/pbs_client/*.log
+cli/pbs_client/*.log
