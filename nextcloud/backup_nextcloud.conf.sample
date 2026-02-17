@@ -1,0 +1,66 @@
+# Exemple de configuration pour backup_nextcloud.sh
+# Copiez ce fichier en backup_nextcloud.conf et adaptez les valeurs à votre environnement
+
+# ===================== BASE DE DONNÉES =====================
+DOCKER_CONTAINER_NAME="nextcloud-aio-database"
+DB_USER="nextcloud"
+DB_NAME="nextcloud_database"
+
+# ===================== SAUVEGARDE LOCALE =====================
+BACKUP_DIR="/mnt/user/docker/nextcloud-aio/backup/"
+DAYS_TO_KEEP=10
+MAX_LOCAL_BACKUPS=2
+FILE_SUFFIX="_nextcloud_backup.sql"
+COMPRESSION_LEVEL=9
+VERIFY_BACKUP=true
+
+# ===================== NEXTCLOUD (config) =====================
+NEXTCLOUD_VOLUME_NAME="nextcloud_aio_nextcloud"
+NEXTCLOUD_CONFIG_PATH="/var/www/html/config/config.php"
+
+# ===================== NEXTCLOUD (données) =====================
+NEXTCLOUD_DATA_ROOT="/mnt/user/ncdata"
+NEXTCLOUD_DATA_PATH="/mnt/user/ncdata"
+NEXTCLOUD_DATA_ARCHIVE_NAME="nextcloud-data.pxar"
+
+# ===================== PBS (Proxmox Backup Server) =====================
+PBS_ENABLED=true
+PBS_DOCKER_IMAGE="nextcloud-pbs-client:latest"
+NEXTCLOUD_AIO_SOURCE_PATH="/mnt/user/docker/nextcloud-aio"
+NEXTCLOUD_AIO_ARCHIVE_NAME="nextcloud-aio-src.pxar"
+PBS_REPOSITORY="shell@pbs@192.168.100.8:backup"
+PBS_PASSWORD="votre-mot-de-passe-tres-long"
+PBS_FINGERPRINT="09:68:b7:7b:e2:3e:e6:3d:4b:66:6f:16:fc:0a:54:45:a4:06:a7:f6:65:4d:47:2a:e0:e1:92:cb:db:4a:7c:ca"
+PBS_BACKUP_ID="nextcloud-aio"
+PBS_BACKUP_TYPE="host"
+PBS_NAMESPACE="hosts"
+PBS_ARCHIVE_NAME="nextcloud-aio.pxar"
+
+# ===================== SFTP (déprécié) =====================
+SFTP_ENABLED=false
+SFTP_HOST="192.168.100.6"
+SFTP_PORT=2022
+SFTP_USER="nextcloud"
+SFTP_KEY_PATH="/mnt/user/docker/nextcloud-aio/scripts/ssh-key/id_rsa"
+SFTP_REMOTE_DIR="/Auto/"
+SFTP_DAYS_TO_KEEP=60
+SFTP_MAX_RETRIES=3
+SFTP_RETRY_DELAY=30
+
+# ===================== MQTT / HOME ASSISTANT =====================
+MQTT_ENABLED=true
+MQTT_HOST="192.168.100.9"
+MQTT_PORT=1883
+MQTT_USER=""
+MQTT_PASSWORD=""
+MQTT_BASE_TOPIC="homeassistant/device/backup/nextcloud"
+MQTT_STATE_TOPIC="backup/nextcloud/state"
+MQTT_DEVICE_TOPIC="${MQTT_BASE_TOPIC}/config"
+
+# ===================== LOGGING =====================
+LOG_FILE="/var/log/nextcloud_backup.log"
+LOG_LEVEL="INFO"
+
+# ===================== TEST =====================
+TEST_MODE=false
+TEST_DUMMY_SIZE_MB=50

@@ -1,3 +1,6 @@
+# Exclure tous les fichiers de configuration .conf
+*.conf
+nextcloud/*.conf
 # Ignorer les fichiers de configuration sensibles et les fichiers générés
 .env
 cli/backup.conf
