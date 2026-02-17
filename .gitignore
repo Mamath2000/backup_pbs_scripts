@@ -1,0 +1,19 @@
+# Ignorer les fichiers de configuration sensibles et les fichiers générés
+.env
+backup.conf
+*.log
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+.DS_Store
+# Dossiers temporaires
+/tmp/
+# Dossiers de build
+build/
+dist/
+*.egg-info/
+# Docker
+backup_pbs/pbs_client/.env
+backup_pbs/pbs_client/*.log
