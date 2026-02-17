@@ -14,11 +14,25 @@ CONFIG_FILE="${SCRIPT_DIR}/backup.conf"
 
 
 # Vérification des droits sur le fichier de configuration
+
 if [[ ! -f "$CONFIG_FILE" ]]; then
     echo "ERREUR: Fichier de configuration introuvable: $CONFIG_FILE" >&2
     exit 1
 fi
 
+
+# Initialisation LOG_FILE pour usage précoce
+LOG_FILE="/tmp/backup_pbs.log"
+# Définition de log() avant tout usage
+log() {
+    local level="$1"; shift
+    local msg="$*"
+    local ts
+    ts="$(date '+%Y-%m-%d %H:%M:%S')"
+    echo "[$ts] [$level] $msg" | tee -a "${LOG_FILE}"
+}
+
+# Vérification des droits sur le fichier de configuration
 conf_perm=$(stat -c "%a" "$CONFIG_FILE")
 if [[ "$conf_perm" != "600" ]]; then
     echo "ERREUR: Les droits sur $CONFIG_FILE doivent être 600 (actuellement $conf_perm)" >&2
