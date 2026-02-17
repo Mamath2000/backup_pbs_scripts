@@ -1,3 +1,7 @@
+---
+id: backup_pbs
+title: Script backup_pbs.sh
+---
 # `cli/backup_pbs.sh`
 
 Ce script permet de réaliser des sauvegardes de dossiers locaux vers un serveur Proxmox Backup Server (PBS), en utilisant soit le client natif (`proxmox-backup-client` via apt), soit un conteneur Docker. Il propose également un mode de vérification de la connexion à PBS.
