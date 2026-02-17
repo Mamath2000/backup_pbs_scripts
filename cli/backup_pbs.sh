@@ -12,8 +12,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/backup.conf"
 
+
+# Vérification des droits sur le fichier de configuration
 if [[ ! -f "$CONFIG_FILE" ]]; then
     echo "ERREUR: Fichier de configuration introuvable: $CONFIG_FILE" >&2
+    exit 1
+fi
+
+conf_perm=$(stat -c "%a" "$CONFIG_FILE")
+if [[ "$conf_perm" != "600" ]]; then
+    echo "ERREUR: Les droits sur $CONFIG_FILE doivent être 600 (actuellement $conf_perm)" >&2
+    log "ERROR" "Droits insuffisants sur $CONFIG_FILE (actuellement $conf_perm, attendu 600)"
     exit 1
 fi
 
@@ -173,6 +182,13 @@ require_var PBS_REPOSITORY
 # PBS_PASSWORD ou PBS_PASSWORD_FILE sont attendus par proxmox-backup-client
 if [[ -z "${PBS_PASSWORD:-}" && -z "${PBS_PASSWORD_FILE:-}" ]]; then
     log "ERROR" "PBS_PASSWORD ou PBS_PASSWORD_FILE doit être défini dans le conf"
+    exit 1
+fi
+
+# Vérification de la longueur du mot de passe
+if [[ -n "${PBS_PASSWORD:-}" && ${#PBS_PASSWORD} -le 40 ]]; then
+    log "ERROR" "PBS_PASSWORD trop court : ${#PBS_PASSWORD} caractères (minimum 41)"
+    echo "ERREUR: PBS_PASSWORD doit faire plus de 40 caractères pour la sécurité." >&2
     exit 1
 fi
 

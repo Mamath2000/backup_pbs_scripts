@@ -1,4 +1,4 @@
-# Script `cli/backup_pbs.sh`
+# `cli/backup_pbs.sh`
 
 Ce script permet de réaliser des sauvegardes de dossiers locaux vers un serveur Proxmox Backup Server (PBS), en utilisant soit le client natif (`proxmox-backup-client` via apt), soit un conteneur Docker. Il propose également un mode de vérification de la connexion à PBS.
 
@@ -34,6 +34,7 @@ cli/backup_pbs.sh --check
 ```
 Teste la connexion à PBS et affiche le résultat du test.
 
+
 ## Configuration
 Le fichier `cli/backup.conf` doit être présent dans le même dossier que le script. Il doit définir au minimum :
 - `PBS_REPOSITORY` : URL du dépôt PBS
@@ -44,6 +45,29 @@ Variables optionnelles :
 - `PBS_DOCKER_IMAGE` : image Docker à utiliser
 - `LOG_FILE` : chemin du fichier de log
 - `MQTT_ENABLED`, `MQTT_HOST`, etc. pour l'intégration MQTT
+
+### Sécurité et permissions sur Proxmox Backup Server (PBS)
+
+1. **Créer un utilisateur dédié** :
+	- Aller dans l'écran "Contrôle d'accès" de l'interface PBS.
+	- Créer un utilisateur (ex: `shell`) dans le royaume **Proxmox Backup authentification serveur**.
+	- Choisir un mot de passe complexe.
+
+2. **Ajouter les permissions nécessaires** :
+	- Aller dans "Permissions".
+	- Ajouter l'utilisateur créé avec :
+	  - Le rôle `audit` sur `/datastore/backup`
+	  - Le rôle `backup` sur `/datastore/backup`
+
+3. **Sécurité du fichier de configuration** :
+	 - Le script vérifie que le fichier `cli/backup.conf` a des droits stricts (600).
+	 - Si ce n'est pas le cas, le backup est refusé et une erreur est loggée.
+	 - Pour corriger :
+		 ```sh
+		 chmod 600 cli/backup.conf
+		 ```
+	 - Ceci protège vos identifiants et secrets.
+	 - **Le mot de passe PBS (`PBS_PASSWORD`) doit faire plus de 40 caractères**. Le script refusera de lancer le backup si ce n'est pas respecté, pour garantir la robustesse de la sécurité.
 
 ## Logs
 Les logs sont écrits dans le fichier défini par `LOG_FILE` (par défaut `backup.log` dans le dossier du script).
