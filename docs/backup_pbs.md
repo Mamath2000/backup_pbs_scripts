@@ -1,6 +1,6 @@
 ---
 id: backup_pbs
-title: Script backup_pbs.sh
+title: backup_pbs.sh
 ---
 # `cli/backup_pbs.sh`
 
