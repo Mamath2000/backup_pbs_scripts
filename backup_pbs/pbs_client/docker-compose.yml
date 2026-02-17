@@ -1,0 +1,6 @@
+services:
+  pbs-client:
+    build:
+      context: .
+    image: proxmox-pbs-client:latest
+    network_mode: host
