@@ -1,0 +1,95 @@
+# Configuration de la sauvegarde MariaDB (ElkarBackup) - EXEMPLE
+# Copiez ce fichier vers backup_elkarbackup.conf et adaptez les paramètres selon vos besoins
+
+# ============================================================================
+# CONFIGURATION DE LA BASE DE DONNÉES
+# ============================================================================
+
+# Nom du conteneur Docker MariaDB
+DOCKER_CONTAINER_NAME="mariadb"
+
+# Informations de connexion à la base de données
+DB_USER="root"
+DB_PASSWORD="your_password_here"
+DB_NAMES=("elkarbackup")  # Liste des bases à sauvegarder
+
+# ============================================================================
+# CONFIGURATION DES SAUVEGARDES
+# ============================================================================
+
+# Répertoire de sauvegarde local
+BACKUP_DIR="/mnt/user/docker/elkarbackup/backup/"
+
+# Nombre de jours de conservation des sauvegardes locales
+DAYS_TO_KEEP=10
+
+# Nombre maximum de sauvegardes locales à conserver (indépendamment de l'âge)
+MAX_LOCAL_BACKUPS=2
+
+# Suffixe du fichier de sauvegarde
+FILE_SUFFIX="_mariadb_backup.sql"
+
+# Vérification de l'intégrité des sauvegardes
+VERIFY_BACKUP=true
+
+# ============================================================================
+# CONFIGURATION PBS (Proxmox Backup Server)
+# ============================================================================
+
+# Activation de l'envoi vers PBS
+PBS_ENABLED=true
+
+# Image Docker contenant proxmox-backup-client (build via elkarbackup/pbs-client/docker-compose.yml)
+PBS_DOCKER_IMAGE="elkarbackup-pbs-client:latest"
+
+# Repository PBS (format proxmox-backup-client):
+# Exemples:
+#   "backup@pbs!token@192.168.1.10:datastore"
+#   "root@pam@192.168.1.10:datastore"
+#   "shell@pbs@192.168.100.8:backup"
+PBS_REPOSITORY="shell@pbs@192.168.100.8:backup"
+
+# Mot de passe / secret (si token, souvent le secret du token)
+PBS_PASSWORD="your_pbs_password_here"
+
+# Fingerprint du serveur PBS (recommandé pour sécurité)
+# Récupérez-le avec: openssl s_client -connect <pbs_host>:8007 < /dev/null | openssl x509 -noout -fingerprint -sha256
+PBS_FINGERPRINT=""
+
+# Identifiant/type du snapshot côté PBS
+PBS_BACKUP_ID="elkarbackup"
+PBS_BACKUP_TYPE="host"
+
+# Namespace PBS (optionnel) - ex: "backup", "hosts"
+PBS_NAMESPACE="hosts"
+
+# Nom de l'archive pxar dans le snapshot
+PBS_ARCHIVE_NAME="elkarbackup.pxar"
+
+# ============================================================================
+# CONFIGURATION MQTT / HOME ASSISTANT
+# ============================================================================
+
+# Activation des notifications MQTT
+MQTT_ENABLED=true
+
+# Informations de connexion MQTT (à configurer si MQTT_ENABLED=true)
+MQTT_HOST="192.168.100.9"
+MQTT_PORT=1883
+MQTT_USER=""
+MQTT_PASSWORD=""
+
+# Topics MQTT
+MQTT_BASE_TOPIC="homeassistant/device/backup/elkarbackup"
+MQTT_STATE_TOPIC="backup/elkarbackup/state"
+MQTT_DEVICE_TOPIC="${MQTT_BASE_TOPIC}/config"
+
+# ============================================================================
+# CONFIGURATION DU LOGGING
+# ============================================================================
+
+# Fichier de log
+LOG_FILE="/var/log/mariadb_backup.log"
+
+# Niveau de logging (DEBUG, INFO, WARN, ERROR)
+LOG_LEVEL="INFO"

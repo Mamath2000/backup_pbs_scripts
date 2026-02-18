@@ -1,0 +1,233 @@
+---
+id: backup_elkarbackup
+title: backup_elkarbackup.sh
+---
+
+## elkarbackup/backup_elkarbackup.sh
+
+Ce script permet de réaliser des sauvegardes avancées de la base de données MariaDB utilisée par ElkarBackup avec envoi vers Proxmox Backup Server (PBS), et sauvegarde du répertoire applicatif complet, ainsi que la publication de métriques vers Home Assistant via MQTT.
+
+## Fonctionnalités principales
+
+- Sauvegarde de la base de données MariaDB ElkarBackup (via Docker)
+- Sauvegarde du répertoire applicatif complet (configuration, données, logs) via rsync
+- Sauvegarde locale avec gestion de la rétention (nombre et durée)
+- Envoi distant vers PBS avec compression éfficace
+- Publication de métriques et état vers MQTT/Home Assistant
+- Gestion d'erreurs robuste et logs détaillés
+- Programme de nettoyage automatique des anciennes sauvegardes
+- Mode test avec génération de fichiers dummy
+- Mode vérification de connexion PBS
+
+## Utilisation
+
+```bash
+# Afficher l'aide (mode par défaut sans argument)
+./backup_elkarbackup.sh
+./backup_elkarbackup.sh --help
+
+# Sauvegarde normale
+./backup_elkarbackup.sh --backup
+
+# Vérifier uniquement la connexion PBS
+./backup_elkarbackup.sh --check
+
+# Mode test avec fichiers dummy
+./backup_elkarbackup.sh --dummy-run
+```
+
+Le script doit être lancé depuis le dossier `elkarbackup/` et nécessite un fichier de configuration `backup_elkarbackup.conf` adapté.
+
+### Options disponibles
+
+- `--backup` : Mode normal de sauvegarde
+- `--check` : Vérifie uniquement la connexion au serveur PBS (pas de sauvegarde)
+- `--dummy-run` : Mode test avec fichiers dummy (valide le workflow complet sans vraie sauvegarde)
+- `--help, -h` : Affiche l'aide
+
+**Note** : Si aucune option n'est spécifiée, l'aide est affichée par défaut.
+
+## Résumé des modes d'exécution
+
+| Mode | Commande | Sauvegarde DB | Sauvegarde répertoire | Envoi PBS | Backup-ID utilisé | Utilisation |
+| ---- | -------- | ------------- | ---------------------- | --------- | ----------------- | ----------- |
+| **Backup** | `--backup` | ✓ Vraie sauvegarde | ✓ Copie complète (rsync) | ✓ Complète | `PBS_BACKUP_ID` | Production |
+| **Check** | `--check` | ✗ Aucune | ✗ Aucune | ✗ Test connexion uniquement | N/A | Validation config |
+| **Dummy-run** | `--dummy-run` | ✓ Fichier dummy (50MB) | ✓ Copie complète (rsync) | ✓ Partielle | `PBS_BACKUP_ID-dummy` | Tests complets |
+
+### Notes importantes
+
+- **Mode backup** : Sauvegarde complète pour la production
+  - Base de données MariaDB du conteneur
+  - Répertoire complet défini par `BACKUP_SOURCE_DIR` (excluant `backup/`)
+  - Envoi de tous les artefacts vers PBS avec compression
+  
+- **Mode check** : Uniquement pour vérifier la connexion PBS, ne crée aucune sauvegarde
+  
+- **Mode dummy-run** :
+  - Utilise un backup-id différent (`-dummy` ajouté) pour ne pas écraser les vraies sauvegardes
+  - Crée un fichier dummy SQL au lieu de vrai dump MariaDB
+  - Copie le répertoire complet via rsync (même que le mode réel)
+  - Idéal pour tester la configuration PBS sans impact sur les données
+
+## Configuration
+
+Le fichier `elkarbackup/backup_elkarbackup.conf` doit définir au minimum :
+
+### Configuration base de données
+
+- `DOCKER_CONTAINER_NAME` : nom du conteneur MariaDB
+- `DB_USER` : utilisateur pour se connecter à mariadb
+- `DB_PASSWORD` : mot de passe de l'utilisateur
+- `DB_NAMES` : liste des bases à sauvegarder (exemple : `("elkarbackup")`)
+
+### Configuration sauvegardes locales
+
+- `BACKUP_SOURCE_DIR` : répertoire source à sauvegarder (exemple : `/mnt/user/docker/elkar-v2`)
+- `BACKUP_DIR` : dossier de stockage local des dumps SQL (exemple : `/mnt/user/docker/elkar-v2/backup/`)
+- `DAYS_TO_KEEP` : nombre de jours de conservation (par défaut : 10)
+- `MAX_LOCAL_BACKUPS` : nombre maximum de sauvegardes à conserver localement (par défaut : 5)
+- `FILE_SUFFIX` : suffixe des fichiers de sauvegarde SQL (par défaut : `_elkar_backup.sql`)
+- `VERIFY_BACKUP` : vérifier l'intégrité de la sauvegarde SQL (par défaut : true)
+
+### Configuration PBS (Proxmox Backup Server)
+
+- `PBS_ENABLED` : activer l'envoi vers PBS (true/false)
+- `PBS_REPOSITORY` : adresse du dépôt PBS (format : `user@realm@host:datastore`)
+- `PBS_PASSWORD` : mot de passe ou token secret du serveur PBS
+- `PBS_FINGERPRINT` : empreinte du certificat SSL du serveur PBS (optionnel mais recommandé)
+- `PBS_BACKUP_ID` : identifiant unique pour le backup côté PBS (par défaut : `elkarbackup`)
+- `PBS_BACKUP_TYPE` : type de sauvegarde sur PBS (par défaut : `host`)
+- `PBS_NAMESPACE` : namespace PBS (optionnel)
+- `PBS_ARCHIVE_NAME` : nom de l'archive dans le snapshot (par défaut : `elkarbackup.pxar`)
+- `PBS_DOCKER_IMAGE` : image Docker pour le client PBS (par défaut : `elkarbackup-pbs-client:latest`)
+
+### Configuration MQTT (optionnel)
+
+- `MQTT_ENABLED` : activer les notifications MQTT (true/false)
+- `MQTT_HOST` : adresse du broker MQTT
+- `MQTT_PORT` : port du broker (par défaut : 1883)
+- `MQTT_USER` : utilisateur MQTT (optionnel)
+- `MQTT_PASSWORD` : mot de passe MQTT (optionnel)
+- `MQTT_STATE_TOPIC` : topic pour l'état des sauvegardes
+- `MQTT_DEVICE_TOPIC` : topic pour la configuration du device
+
+### Configuration logging
+
+- `LOG_FILE` : chemin du fichier log (par défaut : `/var/log/mariadb_backup.log`)
+- `LOG_LEVEL` : niveau de logging (DEBUG, INFO, WARN, ERROR)
+
+## Contenu de la sauvegarde
+
+Lors d'une sauvegarde, le script crée les artefacts suivants :
+
+### 1. Dump SQL de la base de données
+- Fichier : `YYYYMMDDHHMM_elkarbackup_elkar_backup.sql`
+- Contenu : Dump complet de la base de données MariaDB
+- Stockage local : `BACKUP_DIR` avec conservation limitée à `MAX_LOCAL_BACKUPS`
+- Envoi PBS : Oui (avec compression PBS)
+
+### 2. Copie du répertoire source
+- Source : `BACKUP_SOURCE_DIR` (défini dans la config)
+- Exclusions : Répertoire `backup/` pour éviter les doublons
+- Méthode : `rsync` avec synchronisation complète
+- Stockage local : Temporaire dans staging_dir pendant l'envoi PBS
+- Envoi PBS : Oui (en tant que pxar compressé par PBS)
+
+### 3. Métadonnées
+- Fichier : `metadata.json`
+- Contenu : Informations sur la sauvegarde (date, bases, répertoire source, fichiers inclus)
+- Stockage PBS : Oui
+
+### Flux de traitement
+
+```
+1. Dump SQL → /staging_dir/YYYYMMDDHHMM_elkarbackup_elkar_backup.sql
+2. Copie rsync → /staging_dir/elkar-v2/*
+3. Métadonnées → /staging_dir/metadata.json
+4. PBS archive (pxar) ← stage_dir/*
+5. Nettoyage local → Suppression des backups > MAX_LOCAL_BACKUPS
+```
+
+## Logs
+
+Les logs sont écrits dans le fichier défini par `LOG_FILE` (par défaut `/var/log/mariadb_backup.log`).
+
+## MQTT / Home Assistant
+
+Si activé, le script publie l'état de la sauvegarde sur un broker MQTT pour intégration dans Home Assistant.
+
+Les métriques publiées incluent :
+- État de la sauvegarde (success, failed, dump_failed, pbs_failed)
+- Durée totale
+- Taille des fichiers
+- Timestamp du dernier backup
+- Messages d'erreur en cas de problème
+
+## Image Docker PBS Client
+
+Le script utilise une image Docker personnalisée pour communiquer avec Proxmox Backup Server. Cette image est définie par la variable `PBS_DOCKER_IMAGE` dans le fichier de configuration (par défaut : `elkarbackup-pbs-client:latest`).
+
+**Construction automatique** :
+
+Si l'image n'existe pas lors de l'exécution du script, elle sera automatiquement construite depuis le Dockerfile situé dans `elkarbackup/pbs-client/`. Cette construction se fait automatiquement avant toute tentative de connexion ou de sauvegarde vers PBS.
+
+**Construction manuelle** (optionnel) :
+
+```bash
+cd /mnt/user/docker/_scripts/backup_pbs_scripts/elkarbackup/pbs-client
+docker compose build
+```
+
+## Dépendances
+
+- `docker` : pour exécuter les conteneurs (PBS client et MariaDB)
+- `rsync` : pour synchroniser le répertoire source vers le staging
+- `bc` : pour les calculs de taille et statistiques
+- `mosquitto-clients` : si MQTT est activé (optionnel)
+
+## Exemple de configuration PBS
+
+### Exemple 1 : Avec certificat auto-signé et fingerprint
+
+```bash
+PBS_ENABLED=true
+PBS_REPOSITORY="shell@pbs@192.168.100.8:backup"
+PBS_PASSWORD="your_very_secure_password_here_min_40_chars"
+PBS_FINGERPRINT="09:68:b7:7b:e2:3e:e6:3d:4b:66:6f:16:fc:0a:54:45:a4:06:a7:f6:65:4d:47:2a:e0:e1:92:cb:db:4a:7c:ca"
+PBS_BACKUP_ID="elkarbackup"
+PBS_NAMESPACE="hosts"
+```
+
+### Exemple 2 : Sans fingerprint (non recommandé)
+
+```bash
+PBS_ENABLED=true
+PBS_REPOSITORY="root@pam@proxy.company.local:backup"
+PBS_PASSWORD="token_secret_generated_by_pbs"
+PBS_BACKUP_ID="elkarbackup-prod"
+```
+
+## Obtenir le fingerprint PBS
+
+```bash
+# Obtenir le fingerprint du certificat PBS
+openssl s_client -connect <pbs_host>:8007 < /dev/null | openssl x509 -noout -fingerprint -sha256
+```
+
+Exemple de sortie :
+```
+SHA256 Fingerprint=09:68:b7:7b:e2:3e:e6:3d:4b:66:6f:16:fc:0a:54:45:a4:06:a7:f6:65:4d:47:2a:e0:e1:92:cb:db:4a:7c:ca
+```
+
+## Cron - Exécution régulière
+
+Exemple pour exécuter la sauvegarde chaque nuit à 2h du matin :
+
+```cron
+0 2 * * * /mnt/user/docker/_scripts/backup_pbs_scripts/elkarbackup/backup_elkarbackup.sh --backup >> /var/log/elkarbackup_cron.log 2>&1
+```
+
+## Auteur
+
+Script créé avec l'aide de GitHub Copilot, basé sur les patterns du script backup_nextcloud.sh.
