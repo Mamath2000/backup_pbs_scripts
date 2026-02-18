@@ -122,12 +122,14 @@ Le fichier `elkarbackup/backup_elkarbackup.conf` doit définir au minimum :
 Lors d'une sauvegarde, le script crée les artefacts suivants :
 
 ### 1. Dump SQL de la base de données
+
 - Fichier : `YYYYMMDDHHMM_elkarbackup_elkar_backup.sql`
 - Contenu : Dump complet de la base de données MariaDB
 - Stockage local : `BACKUP_DIR` avec conservation limitée à `MAX_LOCAL_BACKUPS`
 - Envoi PBS : Oui (avec compression PBS)
 
 ### 2. Copie du répertoire source
+
 - Source : `BACKUP_SOURCE_DIR` (défini dans la config)
 - Exclusions : Répertoire `backup/` pour éviter les doublons
 - Méthode : `rsync` avec synchronisation complète
@@ -135,6 +137,7 @@ Lors d'une sauvegarde, le script crée les artefacts suivants :
 - Envoi PBS : Oui (en tant que pxar compressé par PBS)
 
 ### 3. Métadonnées
+
 - Fichier : `metadata.json`
 - Contenu : Informations sur la sauvegarde (date, bases, répertoire source, fichiers inclus)
 - Stockage PBS : Oui
