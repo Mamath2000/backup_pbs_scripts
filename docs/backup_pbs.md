@@ -7,8 +7,8 @@ title: backup_pbs.sh
 Ce script permet de réaliser des sauvegardes de dossiers locaux vers un serveur Proxmox Backup Server (PBS), en utilisant soit le client natif (`proxmox-backup-client` via apt), soit un conteneur Docker. Il propose également un mode de vérification de la connexion à PBS.
 
 ## Fonctionnalités principales
-- Sauvegarde de plusieurs dossiers vers PBS
-- Exclusion de dossiers spécifiques
+- Sauvegarde d'un seul dossier vers PBS (obligatoire via `-d`)
+- Exclusion de dossiers ou fichiers spécifiques (via `-e`)
 - Support du client PBS via apt ou Docker
 - Configuration centralisée dans un fichier `backup.conf`
 - Logs détaillés
@@ -19,17 +19,16 @@ Ce script permet de réaliser des sauvegardes de dossiers locaux vers un serveur
 
 ### Sauvegarde
 ```bash
-cli/backup_pbs.sh "nom-backup" [-d /chemin]... [-e /chemin]... [/chemin...]
+cli/backup_pbs.sh "nom-backup" -d /chemin/unique [-e /chemin/exclu]...
 ```
 - `nom-backup` : identifiant de la sauvegarde
-- `-d /chemin` : dossier à sauvegarder (peut être répété)
-- `-e /chemin` : dossier à exclure (peut être répété)
-- `/chemin` : dossier à sauvegarder (sans option)
+- `-d /chemin/unique` : dossier à sauvegarder (obligatoire, un seul)
+- `-e /chemin/exclu` : dossier ou fichier à exclure (peut être répété)
 
 **Exemples :**
 ```bash
-cli/backup_pbs.sh host-prod /etc /var/lib/app
-cli/backup_pbs.sh host-prod -d /etc -d /var/lib/app -e /var/lib/app/cache
+cli/backup_pbs.sh host-prod -d /etc
+cli/backup_pbs.sh host-prod -d /etc -e /etc/ssl -e /etc/hostname
 ```
 
 ### Test de connexion
