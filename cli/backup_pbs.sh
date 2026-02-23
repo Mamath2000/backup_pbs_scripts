@@ -53,11 +53,11 @@ log() {
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") "nom-backup" [-d /chemin]... [-e /chemin]... [/chemin...]
+Usage: $(basename "$0") "nom-backup" -d /chemin/unique [-e /chemin/exclu]...
 
 Exemples:
-    $(basename "$0") host-prod /etc /var/lib/app
-    $(basename "$0") host-prod -d /etc -d /var/lib/app -e /var/lib/app/cache
+    $(basename "$0") host-prod -d /etc
+    $(basename "$0") host-prod -d /etc -e /etc/ssl -e /etc/hostname
 EOF
 }
 
@@ -143,7 +143,9 @@ BACKUP_DURATION=0
 ERROR_MESSAGE=""
 BACKUP_DATE=$(date +"%Y%m%d%H%M")
 
-DIRS=()
+
+# Nouvelle logique : un seul répertoire à sauvegarder (-d), exclusions multiples (-e)
+BACKUP_DIR=""
 EXCLUDES=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -153,7 +155,11 @@ while [[ $# -gt 0 ]]; do
                 log "ERROR" "-d requiert un chemin"
                 exit 1
             fi
-            DIRS+=("$1")
+            if [[ -n "$BACKUP_DIR" ]]; then
+                log "ERROR" "Un seul répertoire -d est autorisé."
+                exit 1
+            fi
+            BACKUP_DIR="$1"
             ;;
         -e)
             shift
@@ -168,15 +174,21 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            DIRS+=("$1")
+            log "ERROR" "Argument inconnu ou non supporté : $1"
+            usage
+            exit 1
             ;;
     esac
     shift
 done
 
-if [[ ${#DIRS[@]} -lt 1 ]]; then
-    log "ERROR" "Aucun répertoire fourni"
+if [[ -z "$BACKUP_DIR" ]]; then
+    log "ERROR" "Aucun répertoire à sauvegarder (-d) fourni."
     usage
+    exit 1
+fi
+if [[ ! -d "$BACKUP_DIR" ]]; then
+    log "ERROR" "Répertoire à sauvegarder introuvable : $BACKUP_DIR"
     exit 1
 fi
 
@@ -318,44 +330,23 @@ trap cleanup EXIT
 log "INFO" "Démarrage backup: name='${BACKUP_NAME}', mode='${PBS_CLIENT_MODE}'"
 publish_mqtt_discovery
 
-# Préparation des specs (pxar) et montages si docker
+
+# Préparation du mapping pxar unique et du montage si docker
 specs=()
 mounts=()
-used_names=()
-idx=0
-
-for path in "${DIRS[@]}"; do
-    if [[ ! -d "$path" ]]; then
-        log "ERROR" "Répertoire introuvable: $path"
-        exit 1
-    fi
-    idx=$((idx + 1))
-    base_name="$(basename "$path")"
-    safe_name="$(sanitize_name "$base_name")"
-    if [[ -z "$safe_name" ]]; then
-        safe_name="dir${idx}"
-    fi
-
-    # Eviter les doublons de noms d'archives
-    final_name="$safe_name"
-    for existing in "${used_names[@]:-}"; do
-        if [[ "$existing" == "$final_name" ]]; then
-            final_name="${safe_name}_${idx}"
-            break
-        fi
-    done
-    used_names+=("$final_name")
-
-    if [[ "$PBS_CLIENT_MODE" == "docker" ]]; then
-        mount_target="/source${idx}"
-        mounts+=("--volume" "${path}:${mount_target}:ro")
-        specs+=("${final_name}.pxar:${mount_target}")
-        log "INFO" "Mapping docker: ${path} -> ${mount_target} (archive ${final_name}.pxar)"
-    else
-        specs+=("${final_name}.pxar:${path}")
-    fi
-
-done
+base_name="$(basename "$BACKUP_DIR")"
+safe_name="$(sanitize_name "$base_name")"
+if [[ -z "$safe_name" ]]; then
+    safe_name="data"
+fi
+if [[ "$PBS_CLIENT_MODE" == "docker" ]]; then
+    mount_target="/source"
+    mounts+=("--volume" "${BACKUP_DIR}:${mount_target}:ro")
+    specs+=("${safe_name}.pxar:${mount_target}")
+    log "INFO" "Mapping docker: ${BACKUP_DIR} -> ${mount_target} (archive ${safe_name}.pxar)"
+else
+    specs+=("${safe_name}.pxar:${BACKUP_DIR}")
+fi
 
 run_client_apt() {
     log "INFO" "Exécution proxmox-backup-client (apt)"
