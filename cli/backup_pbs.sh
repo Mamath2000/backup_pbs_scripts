@@ -406,6 +406,11 @@ case "$PBS_CLIENT_MODE" in
         run_client_apt
         ;;
     docker)
+        # Vérification automatique de l'image Docker
+        if ! docker image inspect "$PBS_DOCKER_IMAGE" > /dev/null 2>&1; then
+            log "INFO" "Image $PBS_DOCKER_IMAGE absente, lancement du build..."
+            "$SCRIPT_DIR/build_pbs_client.sh"
+        fi
         run_client_docker
         ;;
     *)
