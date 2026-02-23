@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Script de sauvegarde Nextcloud AIO amélioré
+# Script de sauvegarde MariaDB (ElkarBackup) amélioré
 # Fonctionnalités:
 # - Envoi vers Proxmox Backup Server (PBS)
 # - Publication de métriques vers Home Assistant via MQTT
@@ -8,10 +8,9 @@
 # - Logging détaillé
 # - Configuration centralisée
 # - Sauvegarde locale limitée + distant PBS
-# - Dump du répertoire de configuration
 #
 # Usage:
-#   ./backup_nextcloud.sh [--backup|--check|--dummy-run|--help]
+#   ./backup_elkarbackup.sh [--backup|--check|--dummy-run|--help]
 #   --backup    : Mode normal de sauvegarde
 #   --check     : Vérifie uniquement la connexion PBS
 #   --dummy-run : Mode test avec fichiers dummy
@@ -22,7 +21,7 @@ set -euo pipefail
 
 # Répertoire du script
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="${SCRIPT_DIR}/backup_nextcloud.conf"
+CONFIG_FILE="${SCRIPT_DIR}/backup_elkarbackup.conf"
 
 # Mode d'exécution (backup, check, dummy-run, help)
 MODE=""
@@ -76,7 +75,7 @@ if [[ -z "$MODE" ]]; then
 fi
 
 # Fichier de verrou pour éviter les exécutions multiples
-LOCK_FILE="/var/run/nextcloud_backup.lock"
+LOCK_FILE="/var/run/backup_elkarbackup.lock"
 
 # Vérification du verrou (non nécessaire en mode check)
 if [[ "$MODE" != "check" ]]; then
@@ -103,9 +102,14 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
 fi
 
 source "$CONFIG_FILE"
+# Variables locales pour le mode test
+TEST_MODE=false
+DUMMY_FILE_SIZE_MB=50
 
-# Valeurs par défaut pour les variables optionnelles
-DUMMY_FILE_SIZE_MB="${DUMMY_FILE_SIZE_MB:-50}"
+# Si mode dummy-run, activer le TEST_MODE
+if [[ "$MODE" == "dummy-run" ]]; then
+    TEST_MODE=true
+fi
 
 # Variables globales
 START_TIME=$(date +%s)
@@ -131,7 +135,6 @@ if [[ "$MODE" != "check" ]]; then
         exit 1
     fi
 fi
-
 # ============================================================================
 # FONCTIONS UTILITAIRES
 # ============================================================================
@@ -187,6 +190,19 @@ get_size_mb() {
     fi
 }
 
+# Fonction de calcul de taille en GB
+get_size_gb() {
+    local f=$1
+    if [[ -f "$f" ]]; then
+        local size=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f")
+        local tsize=$(echo "scale=2; $size / 1024 / 1024 / 1024" | bc)
+        if [[ ${tsize:0:1} == "." ]]; then tsize="0$tsize"; fi
+        printf '%s' $tsize
+    else
+        printf '0'
+    fi
+}
+
 # Fonction de nettoyage en cas d'erreur
 cleanup() {
     local exit_code=$?
@@ -206,11 +222,11 @@ cleanup() {
     # Calcul de la durée finale
     BACKUP_DURATION=$(($(date +%s) - START_TIME))
 
-    # Publication des métriques finales
-    publish_metrics
+    # Publication des métriques finales (sauf en mode check)
+    [[ "$MODE" != "check" ]] && publish_metrics
 
     # Suppression du verrou
-    rm -f "$LOCK_FILE"
+    [[ "$MODE" != "check" ]] && rm -f "$LOCK_FILE"
 
     exit $exit_code
 }
@@ -231,34 +247,34 @@ publish_mqtt_discovery() {
     # Configuration du device avec tous les composants
     local device_config='{
         "device": {
-            "identifiers": ["nextcloud_backup_monitor"],
-            "name": "Nextcloud Backup Monitor",
-            "model": "Nextcloud Backup Script",
+            "identifiers": ["mariadb_backup_monitor"],
+            "name": "MariaDB Backup Monitor",
+            "model": "MariaDB Backup Script",
             "manufacturer": "Custom Script",
             "sw_version": "2.0.0"
         },
         "origin": {
-            "name": "Nextcloud Backup Script"
+            "name": "MariaDB Backup Script"
         },
         "state_topic": "'$MQTT_STATE_TOPIC'",
         "components": {
-            "nextcloud_backup_status": {
+            "mariadb_backup_status": {
                 "platform": "sensor",
-                "unique_id": "nextcloud_backup_status",
-                "default_entity_id": "sensor.nextcloud_backup_status",
+                "unique_id": "mariadb_backup_status",
+                "object_id": "mariadb_backup_status",
                 "has_entity_name": true,
                 "force_update": true,
                 "name": "Status",
-                "icon": "mdi:cloud-check",
+                "icon": "mdi:database-check",
                 "availability_mode": "all",
                 "value_template": "{{ value_json.status }}",
                 "device_class": null,
                 "state_class": null
             },
-            "nextcloud_backup_duration": {
+            "mariadb_backup_duration": {
                 "platform": "sensor",
-                "unique_id": "nextcloud_backup_duration",
-                "default_entity_id": "sensor.nextcloud_backup_duration",
+                "unique_id": "mariadb_backup_duration",
+                "object_id": "mariadb_backup_duration",
                 "has_entity_name": true,
                 "force_update": true,
                 "name": "Duration",
@@ -269,10 +285,10 @@ publish_mqtt_discovery() {
                 "unit_of_measurement": "s",
                 "state_class": "measurement"
             },
-            "nextcloud_backup_size": {
+            "mariadb_backup_size": {
                 "platform": "sensor",
-                "unique_id": "nextcloud_backup_size",
-                "default_entity_id": "sensor.nextcloud_backup_size",
+                "unique_id": "mariadb_backup_size",
+                "object_id": "mariadb_backup_size",
                 "has_entity_name": true,
                 "force_update": true,
                 "name": "Backup Size",
@@ -283,10 +299,10 @@ publish_mqtt_discovery() {
                 "unit_of_measurement": "MB",
                 "state_class": "measurement"
             },
-            "nextcloud_backup_compression": {
+            "mariadb_backup_compression": {
                 "platform": "sensor",
-                "unique_id": "nextcloud_backup_compression",
-                "default_entity_id": "sensor.nextcloud_backup_compression",
+                "unique_id": "mariadb_backup_compression",
+                "object_id": "mariadb_backup_compression",
                 "has_entity_name": true,
                 "force_update": true,
                 "name": "Compression Ratio",
@@ -297,10 +313,10 @@ publish_mqtt_discovery() {
                 "unit_of_measurement": "%",
                 "state_class": "measurement"
             },
-            "nextcloud_backup_last_run": {
+            "mariadb_backup_last_run": {
                 "platform": "sensor",
-                "unique_id": "nextcloud_backup_last_run",
-                "default_entity_id": "sensor.nextcloud_backup_last_run",
+                "unique_id": "mariadb_backup_last_run",
+                "object_id": "mariadb_backup_last_run",
                 "has_entity_name": true,
                 "force_update": true,
                 "name": "Last Backup",
@@ -308,17 +324,17 @@ publish_mqtt_discovery() {
                 "availability_mode": "all",
                 "value_template": "{{ as_datetime(value_json.last_backup_timestamp) }}",
                 "device_class": "timestamp"
-            },            
-            "nextcloud_backup_problem": {
+            },
+            "mariadb_backup_problem": {
                 "platform": "binary_sensor",
-                "unique_id": "nextcloud_backup_problem",
-                "default_entity_id": "binary_sensor.nextcloud_backup_problem",
+                "unique_id": "mariadb_backup_problem",
+                "object_id": "mariadb_backup_problem",
                 "has_entity_name": true,
                 "force_update": true,
                 "name": "Backup Problem",
                 "icon": "mdi:alert-circle",
                 "availability_mode": "all",
-                "value_template": "{{ \"failed\" if value_json.status in [\"failed\", \"dump_failed\", \"compression_failed\", \"pbs_failed\", \"config_failed\"] else \"success\" }}",
+                "value_template": "{{ \"failed\" if value_json.status in [\"failed\", \"dump_failed\", \"compression_failed\", \"pbs_failed\"] else \"success\" }}",
                 "device_class": "problem",
                 "payload_on": "failed",
                 "payload_off": "success"
@@ -350,15 +366,12 @@ publish_metrics() {
         \"compression_ratio\": $COMPRESSION_RATIO,
         \"backup_files\": \"$(IFS=,; echo "${BACKUP_FILES[*]##*/}")\",
         \"last_backup_timestamp\": \"$current_timestamp\",
-        \"compression_level\": $COMPRESSION_LEVEL,
         \"error_message\": \"$ERROR_MESSAGE\",
         \"backup_date\": \"$BACKUP_DATE\",
         \"days_kept\": $DAYS_TO_KEEP,
         \"max_local_backups\": $MAX_LOCAL_BACKUPS,
         \"pbs_enabled\": $([ "${PBS_ENABLED:-false}" = "true" ] && echo "true" || echo "false"),
-        \"pbs_repository\": \"${PBS_REPOSITORY:-}\",
-        \"pbs_backup_id\": \"${PBS_BACKUP_ID:-}\",
-        \"databases\": \"$DB_NAME\",
+        \"databases\": \"$(IFS=,; echo "${DB_NAMES[*]}")\",
         \"docker_container\": \"$DOCKER_CONTAINER_NAME\"
     }"
 
@@ -371,39 +384,31 @@ publish_metrics() {
 }
 
 # ============================================================================
-# FONCTIONS PBS
+# FONCTIONS PBS (Proxmox Backup Server)
 # ============================================================================
 
 ensure_pbs_image() {
-    local image="${PBS_DOCKER_IMAGE:-ayufan/proxmox-backup-server:latest}"
-    
-    log_debug "Vérification de la présence de l'image Docker: $image"
-    
-    # Vérifier si l'image existe déjà
-    if docker image inspect "$image" &>/dev/null; then
-        log_debug "Image Docker '$image' trouvée"
+    local pbs_docker_image="${PBS_DOCKER_IMAGE:-elkarbackup-pbs-client:latest}"
+    local compose_file="${SCRIPT_DIR}/pbs-client/docker-compose.yml"
+
+    if docker image inspect "$pbs_docker_image" >/dev/null 2>&1; then
+        log_debug "Image PBS déjà présente: $pbs_docker_image"
         return 0
     fi
-    
-    log_warn "Image Docker '$image' non trouvée, construction en cours..."
-    
-    # Rechercher le docker-compose.yml pour construire l'image
-    local compose_file="${SCRIPT_DIR}/pbs-client/docker-compose.yml"
-    
+
+    log_info "Image PBS non trouvée, tentative de construction..."
+
     if [[ ! -f "$compose_file" ]]; then
-        log_error "Impossible de trouver $compose_file pour construire l'image"
-        log_error "Veuillez construire l'image manuellement avec: cd ${SCRIPT_DIR}/pbs-client && docker compose build"
+        log_error "Fichier docker-compose pour PBS non trouvé: $compose_file"
         return 1
     fi
-    
-    log_info "Construction de l'image depuis: $compose_file"
-    
+
     # Construire l'image
     if docker compose -f "$compose_file" --project-directory "$(dirname "$compose_file")" build 2>&1 | tee -a "$LOG_FILE"; then
-        log_info "✓ Image '$image' construite avec succès"
+        log_info "Image '$pbs_docker_image' construite avec succès"
         return 0
     else
-        log_error "✗ Échec de la construction de l'image '$image'"
+        log_error "Échec de la construction de l'image '$pbs_docker_image'"
         return 1
     fi
 }
@@ -449,10 +454,10 @@ check_pbs_connection() {
         ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
         "$image" \
         login --repository "$PBS_REPOSITORY" 2>&1 | tee -a "$LOG_FILE"; then
-        log_info "✓ Connexion PBS réussie!"
+        log_info "Connexion PBS réussie!"
         test_result=0
     else
-        log_error "✗ Échec de la connexion PBS"
+        log_error "Échec de la connexion PBS"
         test_result=1
     fi
     
@@ -465,14 +470,10 @@ pbs_is_enabled() {
 
 pbs_run_backup() {
     local staging_dir="$1"
-    local archive_name="${PBS_ARCHIVE_NAME:-nextcloud-aio.pxar}"
-    local backup_id="${PBS_BACKUP_ID:-nextcloud-aio}"
+    local archive_name="${PBS_ARCHIVE_NAME:-elkarbackup.pxar}"
+    local backup_id="${PBS_BACKUP_ID:-elkarbackup}"
     local backup_type="${PBS_BACKUP_TYPE:-host}"
     local pbs_namespace="${PBS_NAMESPACE:-}"
-    local ncaio_source_path="${NEXTCLOUD_AIO_SOURCE_PATH:-"$(dirname "$SCRIPT_DIR")"}"
-    local ncaio_archive_name="${NEXTCLOUD_AIO_ARCHIVE_NAME:-nextcloud-aio-src.pxar}"
-    local data_path="${NEXTCLOUD_DATA_PATH:-}"
-    local data_archive_name="${NEXTCLOUD_DATA_ARCHIVE_NAME:-nextcloud-data.pxar}"
     local image="${PBS_DOCKER_IMAGE:-ayufan/proxmox-backup-server:latest}"
 
     # Vérifier et construire l'image si nécessaire
@@ -481,16 +482,10 @@ pbs_run_backup() {
         return 1
     fi
 
-    # En mode dummy-run, utiliser un backup_id différent et désactiver les données utilisateur
+    # En mode dummy-run, utiliser un backup_id différent
     if [[ "$MODE" == "dummy-run" ]]; then
         backup_id="${backup_id}-dummy"
         log_info "Mode DUMMY-RUN: Utilisation du backup_id: ${backup_id}"
-        log_warn "Mode DUMMY-RUN: Sauvegarde des données utilisateur désactivée (NEXTCLOUD_DATA_PATH ignoré)"
-        data_path=""
-    fi
-
-    if [[ -n "$data_path" ]]; then
-        log_info "Inclusion des données Nextcloud: $data_path -> $data_archive_name"
     fi
 
     if [[ -z "${PBS_REPOSITORY:-}" ]]; then
@@ -500,42 +495,17 @@ pbs_run_backup() {
 
     log_info "Envoi vers PBS: repository='${PBS_REPOSITORY}', backup_id='${backup_id}', type='${backup_type}'"
 
-    local -a extra_mounts=()
-    local -a backup_specs=("${archive_name}:/data")
-
-    # Répertoire nextcloud-aio (meilleure dédup PBS qu'un tar.gz)
-    if [[ -d "$ncaio_source_path" ]]; then
-        extra_mounts+=("-v" "${ncaio_source_path}:/ncaio:ro")
-        backup_specs+=("${ncaio_archive_name}:/ncaio")
-    else
-        log_error "NEXTCLOUD_AIO_SOURCE_PATH n'existe pas ou n'est pas un répertoire: $ncaio_source_path"
-        return 1
-    fi
-
-    if [[ -n "$data_path" ]]; then
-        if [[ -d "$data_path" ]]; then
-            extra_mounts+=("-v" "${data_path}:/ncdata:ro")
-            backup_specs+=("${data_archive_name}:/ncdata")
-        else
-            log_error "NEXTCLOUD_DATA_PATH n'existe pas ou n'est pas un répertoire: $data_path"
-            return 1
-        fi
-    fi
-
     local -a pbs_args=(
         backup
-        "${backup_specs[@]}"
+        "${archive_name}:/data"
         --backup-id "$backup_id"
         --backup-type "$backup_type"
         ${pbs_namespace:+--ns "$pbs_namespace"}
         --repository "$PBS_REPOSITORY"
-        --exclude "/ncaio/backup"
-        --exclude "/ncaio/mastercontainer"
     )
 
     docker run --rm --network host \
         -v "${staging_dir}:/data:ro" \
-        "${extra_mounts[@]}" \
         -e "PBS_REPOSITORY=${PBS_REPOSITORY}" \
         ${PBS_PASSWORD:+-e "PBS_PASSWORD=${PBS_PASSWORD}"} \
         ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
@@ -555,7 +525,7 @@ pbs_backup_files() {
     local staging_dir
     staging_dir=$(mktemp -d -p "${BACKUP_DIR%/}" ".pbs-staging.${BACKUP_DATE}.XXXXXX")
 
-    # Copie des artefacts dans un répertoire dédié pour un snapshot PBS propre
+    # Copie des artefacts (dumps SQL)
     for f in "${files[@]}"; do
         if [[ ! -f "$f" ]]; then
             log_error "Fichier introuvable pour PBS: $f"
@@ -565,19 +535,43 @@ pbs_backup_files() {
         cp -f -- "$f" "$staging_dir/"
     done
 
-        # Métadonnées (utile à la restauration)
-        local json_files=""
-        for f in "${files[@]}"; do
-                json_files+="\"$(basename "$f")\"," 
-        done
-        json_files="${json_files%, }"
+    # Ajout du répertoire ElkarBackup (en excluant backup)
+    local source_dir="${BACKUP_SOURCE_DIR}"
+    local source_name="${source_dir##*/}"  # Extrait le dernier composant du chemin
+    local backup_subdir="$staging_dir/$source_name"
+    
+    log_info "Copie du répertoire source: $source_dir"
+    
+    if ! mkdir -p "$backup_subdir" 2>>"$LOG_FILE"; then
+        log_error "Impossible de créer le répertoire de sauvegarde"
+        rm -rf "$staging_dir" || true
+        return 1
+    fi
+    
+    # Copie avec exclusion du répertoire backup
+    if ! rsync -av --delete --exclude='backup' \
+               "$source_dir/" "$backup_subdir/" 2>>"$LOG_FILE"; then
+        log_error "Échec de la copie du répertoire source"
+        rm -rf "$staging_dir" || true
+        return 1
+    fi
+    
+    log_info "Répertoire source copié avec succès"
 
-        cat >"$staging_dir/metadata.json" <<EOF
+    # Métadonnées (utile à la restauration)
+    local json_files=""
+    for f in "${files[@]}"; do
+        json_files+="\"$(basename "$f")\"," 
+    done
+    json_files="${json_files%, }"
+
+    cat >"$staging_dir/metadata.json" <<EOF
 {
     "backup_date": "${BACKUP_DATE}",
-    "db_name": "${DB_NAME}",
+    "databases": "$(IFS=,; echo "${DB_NAMES[*]}")",
     "docker_container": "${DOCKER_CONTAINER_NAME}",
-    "files": [${json_files}]
+    "files": [${json_files}],
+    "directory": "$source_dir"
 }
 EOF
 
@@ -604,60 +598,48 @@ create_backup_directory() {
 }
 
 perform_database_dump() {
-    local backup_file="${BACKUP_DIR}${BACKUP_DATE}${FILE_SUFFIX}"
+    local database="$1"
+    local backup_file="${BACKUP_DIR}${BACKUP_DATE}_${database}${FILE_SUFFIX}"
     
-    log_info "Début de la sauvegarde de la base de données: $DB_NAME"
+    log_info "Début de la sauvegarde de la base de données: $database"
 
     # Ajout du fichier à la liste pour le nettoyage
     BACKUP_FILES+=("$backup_file")
 
-    if [[ "$MODE" == "dummy-run" ]]; then
-        log_info "MODE DUMMY-RUN: Création d'un fichier dummy"
-        if create_dummy_backup "$backup_file"; then
-            local size_bytes
-            size_bytes=$(stat -c%s "$backup_file" 2>/dev/null || stat -f%z "$backup_file")
-            local size_mb
-            size_mb=$(get_size_mb "$backup_file")
-            TOTAL_BACKUP_SIZE=$((TOTAL_BACKUP_SIZE + size_bytes))
-            TOTAL_COMPRESSED_SIZE=$(echo "scale=2; $TOTAL_COMPRESSED_SIZE + $size_mb" | bc)
-            return 0
+    if [[ "$TEST_MODE" == "true" ]]; then
+        log_info "MODE TEST: Création d'un fichier dummy pour la base '$database'"
+        create_dummy_backup "$backup_file" "$database"
+        local result=$?
+        if [[ $result -eq 0 ]]; then
+            # Tracker la taille du fichier
+            local file_size=$(stat -c%s "$backup_file" 2>/dev/null || stat -f%z "$backup_file")
+            local file_size_mb=$(echo "scale=2; $file_size / 1024 / 1024" | bc)
+            TOTAL_BACKUP_SIZE=$((TOTAL_BACKUP_SIZE + file_size))
+            TOTAL_COMPRESSED_SIZE=$(echo "scale=2; $TOTAL_COMPRESSED_SIZE + $file_size_mb" | bc)
+            log_debug "Taille du fichier dummy: ${file_size_mb}MB"
         fi
-        return 1
+        return $result
     else
-        # Chemin temporaire dans le conteneur
-        local temp_file="/mnt/data/${BACKUP_DATE}${FILE_SUFFIX}"
-        
-        # Commande de dump PostgreSQL
-        local cmd="pg_dump -U ${DB_USER} ${DB_NAME} -F p -f ${temp_file}"
+        # Commande de dump MariaDB (exécutée directement, sans /bin/bash -c)
+        log_debug "Dump MariaDB pour la base: $database (user: $DB_USER)"
 
-        log_debug "Commande de dump: $cmd"
+        if docker exec -i mariadb mariadb-dump -u"${DB_USER}" -p"${DB_PASSWORD}" --databases "${database}" --skip-comments --single-transaction --routines --triggers > "$backup_file" 2>>"$LOG_FILE"; then
+            log_info "Dump de la base de données '$database' réussi"
 
-        if docker exec -t "$DOCKER_ID" $cmd 2>>"$LOG_FILE"; then
-            # Copie du fichier depuis le conteneur
-            if docker cp "${DOCKER_ID}:${temp_file}" "$backup_file" 2>>"$LOG_FILE"; then
-                # Suppression du fichier temporaire dans le conteneur
-                docker exec "$DOCKER_ID" rm "$temp_file" 2>/dev/null || true
-                
-                log_info "Dump de la base de données '$DB_NAME' réussi"
-
-                if [[ "$VERIFY_BACKUP" == "true" ]]; then
-                    verify_backup_integrity "$backup_file"
-                fi
-
-                local size_bytes
-                size_bytes=$(stat -c%s "$backup_file" 2>/dev/null || stat -f%z "$backup_file")
-                local size_mb
-                size_mb=$(get_size_mb "$backup_file")
-                TOTAL_BACKUP_SIZE=$((TOTAL_BACKUP_SIZE + size_bytes))
-                TOTAL_COMPRESSED_SIZE=$(echo "scale=2; $TOTAL_COMPRESSED_SIZE + $size_mb" | bc)
-
-                return 0
-            else
-                log_error "Échec de la copie du dump depuis le conteneur"
-                return 1
+            if [[ "$VERIFY_BACKUP" == "true" ]]; then
+                verify_backup_integrity "$backup_file"
             fi
+
+            # Tracker la taille du fichier
+            local file_size=$(stat -c%s "$backup_file" 2>/dev/null || stat -f%z "$backup_file")
+            local file_size_mb=$(echo "scale=2; $file_size / 1024 / 1024" | bc)
+            TOTAL_BACKUP_SIZE=$((TOTAL_BACKUP_SIZE + file_size))
+            TOTAL_COMPRESSED_SIZE=$(echo "scale=2; $TOTAL_COMPRESSED_SIZE + $file_size_mb" | bc)
+            log_debug "Taille du fichier: ${file_size_mb}MB"
+
+            return 0
         else
-            log_error "Échec du dump de la base de données '$DB_NAME'"
+            log_error "Échec du dump de la base de données '$database'"
             return 1
         fi
     fi
@@ -665,8 +647,9 @@ perform_database_dump() {
 
 create_dummy_backup() {
     local backup_file="$1"
+    local database="$2"
     
-    log_debug "Création d'un fichier dummy de test"
+    log_debug "Création d'un fichier dummy de test pour '$database'"
 
     # Création du fichier dummy avec dd
     if dd if=/dev/urandom of="$backup_file" bs=1M count="$DUMMY_FILE_SIZE_MB" 2>>"$LOG_FILE"; then
@@ -674,15 +657,15 @@ create_dummy_backup() {
 
         # Ajout d'un en-tête pour identifier le fichier comme étant un test
         {
-            echo "-- PostgreSQL Backup Test File"
+            echo "-- MariaDB Backup Test File"
             echo "-- Created: $(date)"
             echo "-- Size: ${DUMMY_FILE_SIZE_MB}MB" 
-            echo "-- Database: $DB_NAME (DUMMY RUN MODE)"
+            echo "-- Database: $database (TEST MODE)"
             echo "-- Container: $DOCKER_CONTAINER_NAME"
             echo "-- This is a dummy file for testing purposes"
             echo ""
-            echo "CREATE DATABASE ${DB_NAME};"
-            echo "\\c ${DB_NAME};"
+            echo "CREATE DATABASE IF NOT EXISTS \`$database\`;"
+            echo "USE \`$database\`;"
             echo ""
             echo "-- Original dummy data follows..."
         } > /tmp/test_header
@@ -697,7 +680,7 @@ create_dummy_backup() {
 
         return 0
     else
-        log_error "Échec de la création du fichier dummy"
+        log_error "Échec de la création du fichier dummy pour '$database'"
         return 1
     fi
 }
@@ -728,8 +711,8 @@ verify_backup_integrity() {
     log_debug "Vérification de l'intégrité de la sauvegarde: $(basename "$backup_file")"
 
     if [[ -f "$backup_file" && -s "$backup_file" ]]; then
-        # Vérification basique du contenu PostgreSQL
-        if grep -q "PostgreSQL database dump" "$backup_file" || grep -q "CREATE " "$backup_file"; then
+        # Vérification basique du contenu SQL
+        if grep -q "CREATE DATABASE" "$backup_file" && grep -q "USE " "$backup_file"; then
             log_debug "Fichier de sauvegarde valide"
             return 0
         else
@@ -742,47 +725,10 @@ verify_backup_integrity() {
     fi
 }
 
-compress_backup() {
-    local backup_file="$1"
-    local compressed_file="${backup_file}.gz"
-    
-    log_info "Compression de la sauvegarde: $(basename "$backup_file")"
-
-    local original_size=$(stat -c%s "$backup_file" 2>/dev/null || stat -f%z "$backup_file")
-
-    if gzip -"$COMPRESSION_LEVEL" -k "$backup_file"; then
-        local compressed_size=$(stat -c%s "$compressed_file" 2>/dev/null || stat -f%z "$compressed_file")
-
-        # Calcul du ratio de compression pour ce fichier
-        local file_compression_ratio=$(( (original_size - compressed_size) * 100 / original_size ))
-        local file_size_mb=$(echo "scale=2; $compressed_size / 1024 / 1024" | bc)
-
-        log_info "Compression réussie. Taille originale: ${original_size} bytes, Compressée: ${compressed_size} bytes (${file_compression_ratio}%)"
-
-        # Mise à jour des totaux
-        TOTAL_BACKUP_SIZE=$((TOTAL_BACKUP_SIZE + original_size))
-        TOTAL_COMPRESSED_SIZE=$(echo "scale=2; $TOTAL_COMPRESSED_SIZE + $file_size_mb" | bc)
-
-        # Suppression du fichier non compressé
-        rm -f "$backup_file"
-
-        # Mise à jour de la liste des fichiers
-        for i in "${!BACKUP_FILES[@]}"; do
-            if [[ "${BACKUP_FILES[i]}" == "$backup_file" ]]; then
-                BACKUP_FILES[i]="$compressed_file"
-                break
-            fi
-        done
-
-        return 0
-    else
-        log_error "Échec de la compression de $(basename "$backup_file")"
-        return 1
-    fi
-}
-
 cleanup_old_backups() {
-    log_info "Nettoyage des anciennes sauvegardes (conservation: ${DAYS_TO_KEEP} jours, max local: ${MAX_LOCAL_BACKUPS})"
+    local database="$1"
+    
+    log_info "Nettoyage des anciennes sauvegardes pour '$database' (conservation: ${DAYS_TO_KEEP} jours, max local: ${MAX_LOCAL_BACKUPS})"
 
     # Nettoyage par âge
     local deleted_count=0
@@ -790,16 +736,15 @@ cleanup_old_backups() {
         log_debug "Suppression de l'ancienne sauvegarde: $(basename "$file")"
         rm -f "$file"
         deleted_count=$((deleted_count + 1))
-    done < <(find "$BACKUP_DIR" -maxdepth 1 -mtime +$DAYS_TO_KEEP \( -name "*${FILE_SUFFIX}" -o -name "*${FILE_SUFFIX}.gz" \) -print0 2>/dev/null)
+    done < <(find "$BACKUP_DIR" -maxdepth 1 -mtime +$DAYS_TO_KEEP -name "*${database}${FILE_SUFFIX}" -print0 2>/dev/null)
 
     # Nettoyage par nombre (garder seulement les N plus récents)
-    local backup_count
-    backup_count=$(find "$BACKUP_DIR" -maxdepth 1 \( -name "*${FILE_SUFFIX}" -o -name "*${FILE_SUFFIX}.gz" \) 2>/dev/null | wc -l)
+    local backup_count=$(find "$BACKUP_DIR" -maxdepth 1 -name "*${database}${FILE_SUFFIX}" 2>/dev/null | wc -l)
     if [[ $backup_count -gt $MAX_LOCAL_BACKUPS ]]; then
         local to_delete=$((backup_count - MAX_LOCAL_BACKUPS))
         log_info "Suppression de $to_delete sauvegarde(s) pour respecter la limite de $MAX_LOCAL_BACKUPS"
         
-        find "$BACKUP_DIR" -maxdepth 1 \( -name "*${FILE_SUFFIX}" -o -name "*${FILE_SUFFIX}.gz" \) -type f -printf '%T@ %p\n' 2>/dev/null | \
+        find "$BACKUP_DIR" -maxdepth 1 -name "*${database}${FILE_SUFFIX}" -type f -printf '%T@ %p\n' 2>/dev/null | \
         sort -n | head -n "$to_delete" | cut -d' ' -f2- | \
         while IFS= read -r file; do
             log_debug "Suppression pour limite de nombre: $(basename "$file")"
@@ -808,130 +753,7 @@ cleanup_old_backups() {
         done
     fi
 
-    log_info "Suppression de $deleted_count ancienne(s) sauvegarde(s)"
-}
-
-# ============================================================================
-# FONCTIONS DE DUMP DU RÉPERTOIRE
-# ============================================================================
-
-create_directory_dump() {
-    log_info "=== Début du dump du répertoire parent ==="
-    
-    # Répertoire parent (nextcloud-aio)
-    local source_dir="$(dirname "$SCRIPT_DIR")"
-    local dump_file="${BACKUP_DIR}${BACKUP_DATE}_nextcloud_directory_dump.tar.gz"
-    
-    log_info "Création du dump du répertoire: $source_dir"
-    log_info "Fichier de dump: $(basename "$dump_file")"
-    
-    # Ajout du fichier à la liste pour le nettoyage
-    BACKUP_FILES+=("$dump_file")
-    
-    # Création du dump en excluant les répertoires backup et mastercontainer
-    if tar --exclude='./backup' --exclude='./mastercontainer' \
-           -czf "$dump_file" \
-           -C "$source_dir" . 2>>"$LOG_FILE"; then
-        
-        local dump_size=$(get_size_mb "$dump_file")
-        log_info "Dump du répertoire créé avec succès (taille: ${dump_size}MB)"
-        
-        # Mise à jour de la taille totale
-        TOTAL_COMPRESSED_SIZE=$(echo "scale=2; $TOTAL_COMPRESSED_SIZE + $dump_size" | bc)
-        
-        return 0
-    else
-        log_error "Échec de la création du dump du répertoire"
-        return 1
-    fi
-}
-
-cleanup_old_directory_dumps() {
-    log_info "Nettoyage des anciens dumps de répertoire (conservation: ${DAYS_TO_KEEP} jours, max local: ${MAX_LOCAL_BACKUPS})"
-
-    # Nettoyage par âge
-    local deleted_count=0
-    while IFS= read -r -d '' file; do
-        log_debug "Suppression de l'ancien dump: $(basename "$file")"
-        rm -f "$file"
-        deleted_count=$((deleted_count + 1))
-    done < <(find "$BACKUP_DIR" -maxdepth 1 -mtime +$DAYS_TO_KEEP -name "*_directory_dump.tar.gz" -print0 2>/dev/null)
-
-    # Nettoyage par nombre (garder seulement les N plus récents)
-    local dump_count=$(find "$BACKUP_DIR" -maxdepth 1 -name "*_directory_dump.tar.gz" 2>/dev/null | wc -l)
-    if [[ $dump_count -gt $MAX_LOCAL_BACKUPS ]]; then
-        local to_delete=$((dump_count - MAX_LOCAL_BACKUPS))
-        log_info "Suppression de $to_delete dump(s) pour respecter la limite de $MAX_LOCAL_BACKUPS"
-        
-        find "$BACKUP_DIR" -maxdepth 1 -name "*_directory_dump.tar.gz" -type f -printf '%T@ %p\n' 2>/dev/null | \
-        sort -n | head -n "$to_delete" | cut -d' ' -f2- | \
-        while IFS= read -r file; do
-            log_debug "Suppression pour limite de nombre: $(basename "$file")"
-            rm -f "$file"
-            deleted_count=$((deleted_count + 1))
-        done
-    fi
-
-    log_info "Suppression de $deleted_count ancien(s) dump(s) de répertoire"
-}
-
-export_nextcloud_config() {
-    local volume_name="${NEXTCLOUD_VOLUME_NAME:-nextcloud_aio_nextcloud}"
-    local container_path="${NEXTCLOUD_CONFIG_PATH:-/var/www/html/config/config.php}"
-    local output_file="${BACKUP_DIR}${BACKUP_DATE}_nextcloud_config.php"
-
-    log_info "Export du fichier config.php depuis le volume Nextcloud"
-
-    BACKUP_FILES+=("$output_file")
-
-    # Lecture via un conteneur temporaire (inspiré de l'édition via alpine), mais en lecture seule
-    if docker run --rm \
-        --volume "${volume_name}:/var/www/html:ro" \
-        alpine sh -lc "cat '${container_path}'" >"$output_file" 2>>"$LOG_FILE"; then
-
-        if [[ ! -s "$output_file" ]]; then
-            log_error "config.php exporté mais vide: $output_file"
-            return 1
-        fi
-
-        local cfg_size
-        cfg_size=$(get_size_mb "$output_file")
-        log_info "config.php exporté: $(basename "$output_file") (${cfg_size}MB)"
-
-        TOTAL_COMPRESSED_SIZE=$(echo "scale=2; $TOTAL_COMPRESSED_SIZE + $cfg_size" | bc)
-        return 0
-    fi
-
-    log_error "Échec de l'export de config.php (volume='${volume_name}', path='${container_path}')"
-    return 1
-}
-
-cleanup_old_config_exports() {
-    log_info "Nettoyage des anciens exports config.php (conservation: ${DAYS_TO_KEEP} jours, max local: ${MAX_LOCAL_BACKUPS})"
-
-    local deleted_count=0
-    while IFS= read -r -d '' file; do
-        log_debug "Suppression de l'ancien export config.php: $(basename "$file")"
-        rm -f "$file"
-        deleted_count=$((deleted_count + 1))
-    done < <(find "$BACKUP_DIR" -maxdepth 1 -mtime +$DAYS_TO_KEEP -name "*_nextcloud_config.php" -print0 2>/dev/null)
-
-    local cfg_count
-    cfg_count=$(find "$BACKUP_DIR" -maxdepth 1 -name "*_nextcloud_config.php" 2>/dev/null | wc -l)
-    if [[ $cfg_count -gt $MAX_LOCAL_BACKUPS ]]; then
-        local to_delete=$((cfg_count - MAX_LOCAL_BACKUPS))
-        log_info "Suppression de $to_delete export(s) config.php pour respecter la limite de $MAX_LOCAL_BACKUPS"
-
-        find "$BACKUP_DIR" -maxdepth 1 -name "*_nextcloud_config.php" -type f -printf '%T@ %p\n' 2>/dev/null | \
-        sort -n | head -n "$to_delete" | cut -d' ' -f2- | \
-        while IFS= read -r file; do
-            log_debug "Suppression pour limite de nombre: $(basename "$file")"
-            rm -f "$file"
-            deleted_count=$((deleted_count + 1))
-        done
-    fi
-
-    log_info "Suppression de $deleted_count ancien(s) export(s) config.php"
+    log_info "Suppression de $deleted_count ancienne(s) sauvegarde(s) pour '$database'"
 }
 
 # ============================================================================
@@ -939,8 +761,8 @@ cleanup_old_config_exports() {
 # ============================================================================
 
 main() {
-    log_info "=== Début de la sauvegarde Nextcloud AIO ==="
-    log_info "Base de données: $DB_NAME"
+    log_info "=== Début de la sauvegarde MariaDB ==="
+    log_info "Bases de données à sauvegarder: $(IFS=,; echo "${DB_NAMES[*]}")"
 
     # Publication de la découverte MQTT au début
     publish_mqtt_discovery
@@ -949,61 +771,57 @@ main() {
     BACKUP_STATUS="running"
     publish_metrics
 
-    # Création du répertoire de sauvegarde
+    # Création des répertoires de sauvegarde
     create_backup_directory
 
-    # Sauvegarde de la base de données (non compressée: PBS gère mieux compression + dédup)
-    local dump_successful=true
-    local pbs_successful=true
+    # Sauvegarde de chaque base de données
+    local all_dumps_successful=true
+    local backup_files_for_pbs=()
 
-    local backup_file="${BACKUP_DIR}${BACKUP_DATE}${FILE_SUFFIX}"
-    local config_file=""
-
-    if perform_database_dump; then
-        log_info "Sauvegarde de base de données complète réussie"
-        cleanup_old_backups
-    else
-        log_error "Échec du dump"
-        dump_successful=false
-    fi
-
-    # Ratio de compression local: non pertinent ici (on laisse PBS s'en charger)
+    for db_name in "${DB_NAMES[@]}"; do
+        log_info "Traitement de la base de données: $db_name"
+        
+        if perform_database_dump "$db_name"; then
+            local backup_file="${BACKUP_DIR}${BACKUP_DATE}_${db_name}${FILE_SUFFIX}"
+            
+            # Ajouter directement le fichier à PBS sans compression locale
+            backup_files_for_pbs+=("$backup_file")
+            log_info "Dump de la base de données réussi pour '$db_name' (sera compressé par PBS)"
+            cleanup_old_backups "$db_name"
+        else
+            log_error "Échec du dump pour '$db_name'"
+            all_dumps_successful=false
+        fi
+    done
+    
+    # Pas de compression locale, les fichiers seront compressés par PBS
     COMPRESSION_RATIO=0
 
-    # Export du config.php (volume Nextcloud)
-    local config_export_successful=true
-    if export_nextcloud_config; then
-        config_file="${BACKUP_DIR}${BACKUP_DATE}_nextcloud_config.php"
-        cleanup_old_config_exports
-    else
-        config_export_successful=false
-    fi
-
-    # Envoi distant PBS (DB + config.php). Le répertoire nextcloud-aio est sauvegardé directement par pbs_run_backup().
-    if [[ "$dump_successful" == true && "$config_export_successful" == true ]]; then
-        if ! pbs_backup_files "$backup_file" "$config_file"; then
+    # Envoi vers PBS (inclut les dump SQL + répertoire parent via symlink)
+    local pbs_successful=true
+    if [[ ${#backup_files_for_pbs[@]} -gt 0 ]]; then
+        if ! pbs_backup_files "${backup_files_for_pbs[@]}"; then
+            log_warn "Sauvegardes créées localement mais échec de l'envoi PBS"
             pbs_successful=false
+        else
+            log_info "Envoi PBS réussi"
         fi
-    else
-        pbs_successful=false
     fi
 
     # Détermination du statut final
-    if [[ "$dump_successful" != true ]]; then
-        BACKUP_STATUS="dump_failed"
-        ERROR_MESSAGE="Échec du dump de la base de données"
-        log_error "Problèmes de dump détectés"
-    elif [[ "$config_export_successful" != true ]]; then
-        BACKUP_STATUS="config_failed"
-        ERROR_MESSAGE="Échec de l'export du config.php"
-        log_error "Problèmes d'export config.php détectés"
-    elif [[ "$pbs_successful" != true ]]; then
-        BACKUP_STATUS="pbs_failed"
-        ERROR_MESSAGE="Échec partiel ou total de l'envoi PBS"
-        log_warn "Sauvegarde locale réussie mais problème d'envoi PBS"
+    if [[ "$all_dumps_successful" == true ]]; then
+        if [[ "$pbs_successful" == true ]]; then
+            BACKUP_STATUS="success"
+            log_info "=== Sauvegarde terminée avec succès ==="
+        else
+            BACKUP_STATUS="pbs_failed"
+            ERROR_MESSAGE="Sauvegardes locales réussies mais échec de l'envoi PBS"
+            log_warn "Sauvegarde locale réussie mais problèmes d'envoi PBS"
+        fi
     else
-        BACKUP_STATUS="success"
-        log_info "=== Sauvegarde terminée avec succès ==="
+        BACKUP_STATUS="dump_failed"
+        ERROR_MESSAGE="Échec partiel ou total du dump des bases de données"
+        log_error "Problèmes de dump détectés"
     fi
 
     # Calcul de la durée finale
@@ -1034,12 +852,6 @@ check_dependencies() {
         missing_deps+=("mosquitto-clients")
     fi
 
-    if [[ "${PBS_ENABLED:-false}" == "true" ]]; then
-        if ! command -v docker &> /dev/null; then
-            missing_deps+=("docker")
-        fi
-    fi
-
     if [[ ${#missing_deps[@]} -gt 0 ]]; then
         log_error "Dépendances manquantes: ${missing_deps[*]}"
         exit 1
@@ -1050,34 +862,28 @@ check_dependencies() {
 # POINT D'ENTRÉE
 # ============================================================================
 
-# Vérifications initiales
+# Mode check: vérifier seulement la connexion PBS
+if [[ "$MODE" == "check" ]]; then
+    # Créer un fichier de log temporaire pour le mode check
+    LOG_FILE="${LOG_FILE:-/tmp/backup_elkarbackup_check.log}"
+    touch "$LOG_FILE"
+    
+    # Vérifier les dépendances minimales
+    check_dependencies
+    
+    # Tenter la connexion PBS
+    check_pbs_connection
+    exit $?
+fi
+
+# Pour les autres modes, continuer avec les vérifications normales
 check_dependencies
 
 # Création du fichier de log si nécessaire
 touch "$LOG_FILE"
 
-# Exécution selon le mode
-case "$MODE" in
-    check)
-        log_info "=== Mode CHECK: Vérification de la connexion PBS ==="
-        if check_pbs_connection; then
-            log_info "✓ Vérification réussie"
-            rm -f "$LOCK_FILE" 2>/dev/null || true
-            exit 0
-        else
-            log_error "✗ Vérification échouée"
-            rm -f "$LOCK_FILE" 2>/dev/null || true
-            exit 1
-        fi
-        ;;
-    dummy-run)
-        log_info "=== Mode DUMMY-RUN: Sauvegarde test avec fichiers dummy ==="
-        main
-        ;;
-    backup|*)
-        log_info "=== Mode BACKUP: Sauvegarde normale ==="
-        main
-        ;;
-esac
+# Exécution principale
+main
 
 log_info "=== Script terminé ==="
+
