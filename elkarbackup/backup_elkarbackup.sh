@@ -578,9 +578,9 @@ pbs_backup_files() {
         specs+=("${backup_safe}.pxar:${backup_dir}")
     fi
 
-    # Arguments additionnels: exclure le répertoire 'backup'
+    # Arguments additionnels: exclure les répertoires indésirables
     local -a extra_args_local=()
-    extra_args_local+=(--exclude "backup")
+    extra_args_local+=(--exclude "backup" --exclude "mariadb/db")
     if [[ -n "${PBS_CHANGE_DETECTION_MODE:-}" ]]; then
         extra_args_local+=(--change-detection-mode "$PBS_CHANGE_DETECTION_MODE")
     fi
