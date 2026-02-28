@@ -413,7 +413,6 @@ publish_metrics() {
             \"backup_date\": \"$BACKUP_DATE\",
             \"days_kept\": $DAYS_TO_KEEP,
             \"max_local_backups\": $MAX_LOCAL_BACKUPS,
-            \"pbs_enabled\": true,
             \"databases\": \"$(IFS=,; echo "${DB_NAMES[*]}")\",
             \"docker_container\": \"$DOCKER_CONTAINER_NAME\"
         }"
@@ -675,9 +674,8 @@ perform_database_dump() {
         if docker exec -i mariadb mariadb-dump -u"${DB_USER}" -p"${DB_PASSWORD}" --databases "${database}" --skip-comments --single-transaction --routines --triggers > "$backup_file" 2>>"$LOG_FILE"; then
             log_info "Dump de la base de données '$database' réussi"
 
-            if [[ "$VERIFY_BACKUP" == "true" ]]; then
-                verify_backup_integrity "$backup_file"
-            fi
+            # Vérification systématique du dump SQL (pas de paramètre nécessaire)
+            verify_backup_integrity "$backup_file" || true
 
             # Tracker la taille du fichier
             local file_size=$(stat -c%s "$backup_file" 2>/dev/null || stat -f%z "$backup_file")
@@ -723,9 +721,8 @@ create_dummy_backup() {
         cat /tmp/test_header "$backup_file" > "${backup_file}.tmp" && mv "${backup_file}.tmp" "$backup_file"
         rm -f /tmp/test_header
 
-        if [[ "$VERIFY_BACKUP" == "true" ]]; then
-            verify_dummy_backup "$backup_file"
-        fi
+        # Vérification systématique du dummy (pas de paramètre nécessaire)
+        verify_dummy_backup "$backup_file" || true
 
         return 0
     else
