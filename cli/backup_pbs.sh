@@ -90,12 +90,12 @@ if [[ "${1:-}" == "--check" ]]; then
             ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
             ${PBS_PASSWORD:+-e "PBS_PASSWORD=${PBS_PASSWORD}"} \
             ${PBS_PASSWORD_FILE:+-e "PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}"} \
-            "$PBS_DOCKER_IMAGE" list --repository "$PBS_REPOSITORY" 2>&1) && check_success=1
+            "$PBS_DOCKER_IMAGE" list --repository "$PBS_REPOSITORY_FULL" 2>&1) && check_success=1
     else
         check_output=$(env ${PBS_FINGERPRINT:+PBS_FINGERPRINT="$PBS_FINGERPRINT"} \
             ${PBS_PASSWORD:+PBS_PASSWORD="$PBS_PASSWORD"} \
             ${PBS_PASSWORD_FILE:+PBS_PASSWORD_FILE="$PBS_PASSWORD_FILE"} \
-            proxmox-backup-client list --repository "$PBS_REPOSITORY" 2>&1) && check_success=1
+            proxmox-backup-client list --repository "$PBS_REPOSITORY_FULL" 2>&1) && check_success=1
     fi
     echo -e "\n--- Résultat du test PBS ---"
     echo "$check_output"
@@ -147,6 +147,11 @@ BACKUP_DATE=$(date +"%Y%m%d%H%M")
 # Nouvelle logique : un seul répertoire à sauvegarder (-d), exclusions multiples (-e)
 BACKUP_DIR=""
 EXCLUDES=()
+PBS_DATASTORE="${PBS_DATASTORE_DEFAULT:-}" # datastore par défaut
+if [[ -z "$PBS_DATASTORE" ]]; then
+    PBS_DATASTORE="backup" # fallback si non défini
+fi
+PBS_DATASTORE_ARG=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -d)
@@ -168,6 +173,14 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             EXCLUDES+=("$1")
+            ;;
+        --datastore)
+            shift
+            if [[ -z "${1:-}" ]]; then
+                log "ERROR" "--datastore requiert un nom de datastore"
+                exit 1
+            fi
+            PBS_DATASTORE_ARG="$1"
             ;;
         -h|--help)
             usage
@@ -209,6 +222,13 @@ require_var PBS_REPOSITORY
 if [[ -z "${PBS_PASSWORD:-}" && -z "${PBS_PASSWORD_FILE:-}" ]]; then
     log "ERROR" "PBS_PASSWORD ou PBS_PASSWORD_FILE doit être défini dans le conf"
     exit 1
+fi
+
+# Construction de la chaîne PBS_REPOSITORY complète avec le datastore
+if [[ -n "$PBS_DATASTORE_ARG" ]]; then
+    PBS_REPOSITORY_FULL="$PBS_REPOSITORY:$PBS_DATASTORE_ARG"
+else
+    PBS_REPOSITORY_FULL="$PBS_REPOSITORY:$PBS_DATASTORE"
 fi
 
 # Vérification de la longueur du mot de passe
@@ -361,7 +381,7 @@ run_client_apt() {
 
     env "${env_vars[@]}" proxmox-backup-client backup \
         "${specs[@]}" \
-        --repository "$PBS_REPOSITORY" \
+        --repository "$PBS_REPOSITORY_FULL" \
         --backup-id "$BACKUP_NAME" \
         --backup-type "$PBS_BACKUP_TYPE" \
         ${PBS_NAMESPACE:+--ns "$PBS_NAMESPACE"} \
@@ -377,13 +397,13 @@ run_client_docker() {
         --backup-id "$BACKUP_NAME"
         --backup-type "$PBS_BACKUP_TYPE"
         ${PBS_NAMESPACE:+--ns "$PBS_NAMESPACE"}
-        --repository "$PBS_REPOSITORY"
+        --repository "$PBS_REPOSITORY_FULL"
         "${extra_args[@]}"
     )
 
     docker run --rm --network host \
         "${mounts[@]}" \
-        -e "PBS_REPOSITORY=${PBS_REPOSITORY}" \
+        -e "PBS_REPOSITORY=${PBS_REPOSITORY_FULL}" \
         ${PBS_PASSWORD:+-e "PBS_PASSWORD=${PBS_PASSWORD}"} \
         ${PBS_PASSWORD_FILE:+-e "PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}"} \
         ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
