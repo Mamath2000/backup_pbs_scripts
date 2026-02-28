@@ -9,27 +9,14 @@ PBS_CLIENT_MODE="docker"
 PBS_REPOSITORY="demo@pbs@demo.local:backup"
 PBS_PASSWORD="demo-password"
 PBS_FINGERPRINT="00:11:22:33:44:55:66:77:88:99:aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99:aa:bb:cc:dd:ee:ff"
-PBS_NAMESPACE="demo-hosts"
-
-# Type de backup (host|vm|ct)
-PBS_BACKUP_TYPE="host"
-
-# Mode de détection des changements (pour éviter l'erreur .didx)
-PBS_CHANGE_DETECTION_MODE="legacy"
-
-# Image docker du client (si PBS_CLIENT_MODE=docker)
-PBS_DOCKER_IMAGE="proxmox-pbs-client:latest"
+PBS_NAMESPACE="Hosts"
 
 # ===========================================================================
 # CONFIGURATION MQTT / HOME ASSISTANT (optionnel)
 # ===========================================================================
-MQTT_ENABLED=false
+# MQTT configuration: only the host is required; other values have sensible defaults
+# MQTT_ENABLED=false  # default: false
 MQTT_HOST="mqtt.demo.local"
-MQTT_PORT="1883"
-MQTT_USER="demo"
-MQTT_PASSWORD="demo-mqtt-password"
-
-# ===========================================================================
-# CONFIGURATION DU LOGGING
-# ===========================================================================
-LOG_FILE="/tmp/pbs-backup-demo.log"
+# MQTT_PORT="1883"    # default: "1883"
+# MQTT_USER=""        # default: empty
+# MQTT_PASSWORD=""    # default: empty

@@ -56,9 +56,13 @@ usage() {
     cat <<EOF
 Usage: $(basename "$0") "nom-backup" -d /chemin/unique [-e /chemin/exclu]...
 
+Options:
+    --check [--datastore NAME] [--namespace NAME] : Tester la connexion au serveur PBS (sans effectuer de backup). Vous pouvez préciser un datastore via `--datastore` et/ou un namespace via `--namespace`.
+
 Exemples:
     $(basename "$0") host-prod -d /etc
     $(basename "$0") host-prod -d /etc -e /etc/ssl -e /etc/hostname
+    $(basename "$0") --check --datastore ds3 --namespace Hosts
 EOF
 }
 
@@ -76,14 +80,52 @@ sanitize_name() {
 }
 
 
-# Mode test de connexion : ./backup_pbs.sh --check
+# Mode test de connexion : ./backup_pbs.sh --check [--datastore <name>]
 if [[ "${1:-}" == "--check" ]]; then
     log "INFO" "Mode test de connexion à PBS activé."
+    # s'assurer des valeurs par défaut nécessaires
+    PBS_CLIENT_MODE="${PBS_CLIENT_MODE:-apt}"
+    PBS_DOCKER_IMAGE="${PBS_DOCKER_IMAGE:-proxmox-pbs-client:latest}"
+
     require_var PBS_REPOSITORY
+
+    # parse optional args for check (--datastore and --namespace supported)
+    PBS_DATASTORE="${PBS_DATASTORE_DEFAULT:-backup}"
+    PBS_DATASTORE_ARG=""
+    PBS_NAMESPACE_ARG=""
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --datastore)
+                shift
+                PBS_DATASTORE_ARG="${1:-}"
+                ;;
+            --namespace|--ns)
+                shift
+                PBS_NAMESPACE_ARG="${1:-}"
+                ;;
+            *)
+                log "ERROR" "Argument inconnu pour --check : $1"
+                exit 1
+                ;;
+        esac
+        shift
+    done
+
+    if [[ -n "$PBS_DATASTORE_ARG" ]]; then
+        PBS_REPOSITORY_FULL="$PBS_REPOSITORY:$PBS_DATASTORE_ARG"
+    else
+        PBS_REPOSITORY_FULL="$PBS_REPOSITORY:$PBS_DATASTORE"
+    fi
+
+    # effective namespace: prefer CLI arg, then config
+    EFFECTIVE_PBS_NAMESPACE="${PBS_NAMESPACE_ARG:-${PBS_NAMESPACE:-}}"
+
     if [[ -z "${PBS_PASSWORD:-}" && -z "${PBS_PASSWORD_FILE:-}" ]]; then
         log "ERROR" "PBS_PASSWORD ou PBS_PASSWORD_FILE doit être défini dans le conf"
         exit 1
     fi
+
     check_success=0
     check_output=""
     if [[ "$PBS_CLIENT_MODE" == "docker" ]]; then
@@ -91,13 +133,14 @@ if [[ "${1:-}" == "--check" ]]; then
             ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
             ${PBS_PASSWORD:+-e "PBS_PASSWORD=${PBS_PASSWORD}"} \
             ${PBS_PASSWORD_FILE:+-e "PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}"} \
-            "$PBS_DOCKER_IMAGE" list --repository "$PBS_REPOSITORY_FULL" 2>&1) && check_success=1
+            "$PBS_DOCKER_IMAGE" list --repository "$PBS_REPOSITORY_FULL" ${EFFECTIVE_PBS_NAMESPACE:+--ns "$EFFECTIVE_PBS_NAMESPACE"} 2>&1) && check_success=1
     else
         check_output=$(env ${PBS_FINGERPRINT:+PBS_FINGERPRINT="$PBS_FINGERPRINT"} \
             ${PBS_PASSWORD:+PBS_PASSWORD="$PBS_PASSWORD"} \
             ${PBS_PASSWORD_FILE:+PBS_PASSWORD_FILE="$PBS_PASSWORD_FILE"} \
-            proxmox-backup-client list --repository "$PBS_REPOSITORY_FULL" 2>&1) && check_success=1
+            proxmox-backup-client list --repository "$PBS_REPOSITORY_FULL" ${EFFECTIVE_PBS_NAMESPACE:+--ns "$EFFECTIVE_PBS_NAMESPACE"} 2>&1) && check_success=1
     fi
+
     echo -e "\n--- Résultat du test PBS ---"
     echo "$check_output"
     if [[ $check_success -eq 1 ]]; then

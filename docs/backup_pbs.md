@@ -34,6 +34,8 @@ cli/backup_pbs.sh host-prod -d /etc -e /etc/ssl -e /etc/hostname
 ### Test de connexion
 ```bash
 cli/backup_pbs.sh --check
+# Exemple avec datastore et namespace
+cli/backup_pbs.sh --check --datastore ds3 --namespace Hosts
 ```
 Teste la connexion à PBS et affiche le résultat du test.
 
@@ -48,6 +50,12 @@ Variables optionnelles :
 - `PBS_DOCKER_IMAGE` : image Docker à utiliser
 - `LOG_FILE` : chemin du fichier de log
 - `MQTT_ENABLED`, `MQTT_HOST`, etc. pour l'intégration MQTT
+
+Changements récents (matin) :
+
+- Docker PBS client unifié : le dépôt contient désormais un répertoire `pbs_client/` à la racine qui fournit le `Dockerfile` et le `docker-compose.yml` pour construire l'image utilisée par tous les scripts. Les scripts appellent automatiquement `pbs_client/build_pbs_client.sh` si l'image Docker configurée (`PBS_DOCKER_IMAGE`) est absente.
+- Logs : par défaut le script CLI crée un sous-répertoire `logs/` à côté du script et écrit le log sous le nom `backup_<sanitized-backup-name>.log` (modifiable via `LOG_FILE`). Les autres scripts conservent la variable `LOG_FILE` dans leur config et peuvent être ajustés si nécessaire.
+- Datastore en ligne de commande : il est possible de préciser le datastore PBS à la volée avec l'option `--datastore <name>`. Un `PBS_DATASTORE_DEFAULT` peut être défini dans la configuration ; `PBS_REPOSITORY` ne contient plus le datastore — le script construit la chaîne complète au runtime comme : `PBS_REPOSITORY_FULL="$PBS_REPOSITORY:$DATASTORE"`.
 
 ### Sécurité et permissions sur Proxmox Backup Server (PBS)
 
@@ -73,10 +81,24 @@ Variables optionnelles :
 	 - **Le mot de passe PBS (`PBS_PASSWORD`) doit faire plus de 40 caractères**. Le script refusera de lancer le backup si ce n'est pas respecté, pour garantir la robustesse de la sécurité.
 
 ## Logs
-Les logs sont écrits dans le fichier défini par `LOG_FILE` (par défaut `backup.log` dans le dossier du script).
+Les logs CLI sont écrits par défaut dans un sous-répertoire `logs/` placé à côté du script. Le fichier de log porte le nom `backup_<nom-sanitized>.log` (où `<nom-sanitized>` est le nom de la sauvegarde nettoyé pour être utilisé comme nom de fichier).
+
+Pour override le comportement, certains scripts acceptent encore la variable `LOG_FILE` dans leur configuration, mais dans les fichiers `*.conf.sample` cette option est laissée commentée par défaut.
 
 ## MQTT / Home Assistant
 Si activé, le script publie l'état de la sauvegarde sur un broker MQTT pour intégration dans Home Assistant.
+
+Activation rapide (dans les fichiers `*.conf.sample`) :
+
+```properties
+# MQTT_ENABLED=false    # default: false (laissez commenté si vous n'utilisez pas MQTT)
+MQTT_HOST="mqtt.example.local"  # obligatoire pour activer
+# MQTT_PORT="1883"      # default: "1883"
+# MQTT_USER=""          # default: empty
+# MQTT_PASSWORD=""      # default: empty
+```
+
+Ne laissez jamais de secrets non protégés dans un dépôt public — conservez `*.conf` avec des permissions restreintes (`chmod 600`).
 
 ## Dépendances
 - `proxmox-backup-client` (si mode apt)
