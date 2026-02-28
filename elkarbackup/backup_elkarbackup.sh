@@ -186,6 +186,11 @@ log_debug() {
     [[ "$LOG_LEVEL" == "DEBUG" ]] && log "DEBUG" "$@" || true
 }
 
+# Normalise un nom pour en faire un nom d'archive sûr
+sanitize_name() {
+    echo "$1" | tr -c '[:alnum:]_-' '_' | sed 's/_\+/_/g' | sed 's/^_//;s/_$//'
+}
+
 # Fonction d'affichage du temps
 displaytime() {
     local T=$1
@@ -544,68 +549,83 @@ pbs_backup_files() {
         return 0
     fi
 
-    local staging_dir
-    staging_dir=$(mktemp -d -p "${BACKUP_DIR%/}" ".pbs-staging.${BACKUP_DATE}.XXXXXX")
-
-    # Copie des artefacts (dumps SQL)
-    for f in "${files[@]}"; do
-        if [[ ! -f "$f" ]]; then
-            log_error "Fichier introuvable pour PBS: $f"
-            rm -rf "$staging_dir" || true
-            return 1
-        fi
-        cp -f -- "$f" "$staging_dir/"
-    done
-
-    # Ajout du répertoire ElkarBackup (en excluant backup)
     local source_dir="${BACKUP_SOURCE_DIR}"
-    local source_name="${source_dir##*/}"  # Extrait le dernier composant du chemin
-    local backup_subdir="$staging_dir/$source_name"
-    
-    log_info "Copie du répertoire source: $source_dir"
-    
-    if ! mkdir -p "$backup_subdir" 2>>"$LOG_FILE"; then
-        log_error "Impossible de créer le répertoire de sauvegarde"
-        rm -rf "$staging_dir" || true
-        return 1
-    fi
-    
-    # Copie avec exclusion du répertoire backup
-    if ! rsync -av --delete --exclude='backup' \
-               "$source_dir/" "$backup_subdir/" 2>>"$LOG_FILE"; then
-        log_error "Échec de la copie du répertoire source"
-        rm -rf "$staging_dir" || true
-        return 1
-    fi
-    
-    log_info "Répertoire source copié avec succès"
+    local backup_dir="${BACKUP_DIR%/}"
+    local source_name="${source_dir##*/}"
+    local backup_name="${backup_dir##*/}"
 
-    # Métadonnées (utile à la restauration)
-    local json_files=""
-    for f in "${files[@]}"; do
-        json_files+="\"$(basename "$f")\"," 
-    done
-    json_files="${json_files%, }"
+    local source_safe
+    local backup_safe
+    source_safe=$(sanitize_name "$source_name")
+    backup_safe=$(sanitize_name "$backup_name")
 
-    cat >"$staging_dir/metadata.json" <<EOF
-{
-    "backup_date": "${BACKUP_DATE}",
-    "databases": "$(IFS=,; echo "${DB_NAMES[*]}")",
-    "docker_container": "${DOCKER_CONTAINER_NAME}",
-    "files": [${json_files}],
-    "directory": "$source_dir"
-}
-EOF
+    local image="${PBS_DOCKER_IMAGE:-ayufan/proxmox-backup-server:latest}"
 
-    if pbs_run_backup "$staging_dir"; then
-        log_info "Envoi PBS réussi"
-        rm -rf "$staging_dir" || true
-        return 0
+    # Construire les mounts et specs
+    local -a mounts=()
+    local -a specs=()
+    if [[ "$PBS_CLIENT_MODE" == "docker" ]]; then
+        mounts+=("--volume" "${source_dir}:/source:ro")
+        specs+=("${source_safe}.pxar:/source")
+        mounts+=("--volume" "${backup_dir}:/backups:ro")
+        specs+=("${backup_safe}.pxar:/backups")
+    else
+        specs+=("${source_safe}.pxar:${source_dir}")
+        specs+=("${backup_safe}.pxar:${backup_dir}")
     fi
 
-    log_error "Échec de l'envoi PBS"
-    rm -rf "$staging_dir" || true
-    return 1
+    # Arguments additionnels: exclure le répertoire 'backup'
+    local -a extra_args_local=()
+    extra_args_local+=(--exclude "backup")
+    if [[ -n "${PBS_CHANGE_DETECTION_MODE:-}" ]]; then
+        extra_args_local+=(--change-detection-mode "$PBS_CHANGE_DETECTION_MODE")
+    fi
+    if [[ -n "${PBS_CLIENT_EXTRA_ARGS:-}" ]]; then
+        read -r -a extra_user_args <<< "$PBS_CLIENT_EXTRA_ARGS"
+        extra_args_local+=("${extra_user_args[@]}")
+    fi
+
+    log_info "Envoi PBS direct: repository='${PBS_REPOSITORY_FULL}', source='${source_dir}', backups='${backup_dir}'"
+
+    if [[ "$PBS_CLIENT_MODE" == "docker" ]]; then
+        local -a pbs_args=(
+            backup
+            "${specs[@]}"
+            --backup-id "${PBS_BACKUP_ID:-elkarbackup}"
+            --backup-type "${PBS_BACKUP_TYPE:-host}"
+            ${PBS_NAMESPACE:+--ns "$PBS_NAMESPACE"}
+            --repository "${PBS_REPOSITORY_FULL}"
+            "${extra_args_local[@]}"
+        )
+
+        if [[ "${DRY_RUN:-false}" == "true" ]]; then
+            echo "DRY-RUN: docker run --rm --network host ${mounts[*]} -e PBS_REPOSITORY=${PBS_REPOSITORY_FULL} $image ${pbs_args[*]}"
+            return 0
+        fi
+
+        docker run --rm --network host \
+            "${mounts[@]}" \
+            -e "PBS_REPOSITORY=${PBS_REPOSITORY_FULL}" \
+            ${PBS_PASSWORD:+-e "PBS_PASSWORD=${PBS_PASSWORD}"} \
+            ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
+            "$image" \
+            "${pbs_args[@]}" \
+            2>>"$LOG_FILE"
+
+        return $?
+    else
+        # apt mode
+        if [[ "${DRY_RUN:-false}" == "true" ]]; then
+            echo "DRY-RUN: proxmox-backup-client backup ${specs[*]} --repository ${PBS_REPOSITORY_FULL} --backup-id ${PBS_BACKUP_ID:-elkarbackup} --backup-type ${PBS_BACKUP_TYPE:-host} ${extra_args_local[*]}"
+            return 0
+        fi
+
+        env ${PBS_FINGERPRINT:+PBS_FINGERPRINT="$PBS_FINGERPRINT"} \
+            ${PBS_PASSWORD:+PBS_PASSWORD="$PBS_PASSWORD"} \
+            proxmox-backup-client backup "${specs[@]}" --repository "$PBS_REPOSITORY_FULL" --backup-id "${PBS_BACKUP_ID:-elkarbackup}" --backup-type "${PBS_BACKUP_TYPE:-host}" ${PBS_NAMESPACE:+--ns "$PBS_NAMESPACE"} "${extra_args_local[@]}" 2>>"$LOG_FILE"
+
+        return $?
+    fi
 }
 
 # ============================================================================
