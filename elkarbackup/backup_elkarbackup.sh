@@ -130,6 +130,10 @@ fi
 PBS_CLIENT_MODE="${PBS_CLIENT_MODE:-docker}"
 # Défaut du fichier de log si non défini dans la conf
 LOG_FILE="${LOG_FILE:-/var/log/elkarbackup_backup.log}"
+# MQTT topics: construits en dur dans le script (alignés sur CLI)
+# Pas besoin de définir `MQTT_DEVICE_TOPIC`/`MQTT_STATE_TOPIC` dans la conf.
+MQTT_DEVICE_TOPIC="homeassistant/device/backup/${PBS_BACKUP_ID}/config"
+MQTT_STATE_TOPIC="backup/${PBS_BACKUP_ID}/state"
 # Variables locales pour le mode test
 TEST_MODE=false
 DUMMY_FILE_SIZE_MB=50

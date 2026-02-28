@@ -102,6 +102,12 @@ Le fichier `elkarbackup/backup_elkarbackup.conf` doit définir au minimum :
 - `PBS_ARCHIVE_NAME` : nom de l'archive dans le snapshot (par défaut : `elkarbackup.pxar`)
 - `PBS_DOCKER_IMAGE` : image Docker pour le client PBS (par défaut : `elkarbackup-pbs-client:latest`)
 
+Changements récents (matin) :
+
+- Docker PBS client unifié : le dépôt fournit maintenant un répertoire `pbs_client/` à la racine. Les scripts utilisent cette image centralisée et appellent automatiquement `pbs_client/build_pbs_client.sh` pour construire l'image si elle est absente. Vous pouvez toujours personnaliser `PBS_DOCKER_IMAGE` dans la configuration.
+- Logs : le comportement de logging a été harmonisé — chaque script utilise la variable `LOG_FILE` définie dans sa configuration. Le script CLI crée par défaut un répertoire `logs/` à côté du script et nomme le fichier `backup_<sanitized-backup-name>.log`. Les chemins sont modifiables via `LOG_FILE` dans les fichiers de conf.
+- Datastore en ligne de commande : l'option `--datastore` permet désormais de choisir le datastore cible depuis la ligne de commande. Si vous ne fournissez rien, `PBS_DATASTORE_DEFAULT` (défini dans le fichier de conf) est utilisé. `PBS_REPOSITORY` doit contenir uniquement l'hôte/compte, le datastore est concaténé par le script en `PBS_REPOSITORY_FULL`.
+
 ### Configuration MQTT (optionnel)
 
 - `MQTT_ENABLED` : activer les notifications MQTT (true/false)
@@ -154,11 +160,30 @@ Lors d'une sauvegarde, le script crée les artefacts suivants :
 
 ## Logs
 
-Les logs sont écrits dans le fichier défini par `LOG_FILE` (par défaut `/var/log/mariadb_backup.log`).
+Les scripts écrivent leurs logs dans le fichier défini par `LOG_FILE` lorsque celui-ci est configuré. Pour la plupart des scripts récents, le comportement par défaut est d'écrire dans un répertoire `logs/` placé à côté du script :
+
+- CLI : `logs/backup_<sanitized-backup-name>.log`
+- Scripts individuels : peuvent encore définir `LOG_FILE` dans leur `*.conf` si vous souhaitez un chemin personnalisé.
+
+Dans les fichiers `*.conf.sample`, `LOG_FILE` est laissé commenté par défaut. Exemples :
+
+```properties
+# LOG_FILE="/var/log/mariadb_backup.log"  # optionnel, par défaut les scripts utilisent logs/
+```
 
 ## MQTT / Home Assistant
 
 Si activé, le script publie l'état de la sauvegarde sur un broker MQTT pour intégration dans Home Assistant.
+
+Activation rapide (dans les fichiers `*.conf.sample`) :
+
+```properties
+# MQTT_ENABLED=false    # default: false (laissez commenté si vous n'utilisez pas MQTT)
+MQTT_HOST="mqtt.example.local"  # obligatoire pour activer
+# MQTT_PORT="1883"      # default: "1883"
+# MQTT_USER=""          # default: empty
+# MQTT_PASSWORD=""      # default: empty
+```
 
 Les métriques publiées incluent :
 - État de la sauvegarde (success, failed, dump_failed, pbs_failed)
