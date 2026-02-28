@@ -290,21 +290,21 @@ publish_mqtt_discovery() {
     # Configuration du device avec tous les composants
     local device_config='{
         "device": {
-            "identifiers": ["mariadb_backup_monitor"],
-            "name": "MariaDB Backup Monitor",
-            "model": "MariaDB Backup Script",
+            "identifiers": ["elkarbackup_monitor"],
+            "name": "Backup Elkarbackup Monitor",
+            "model": "Backup Script",
             "manufacturer": "Custom Script",
             "sw_version": "2.0.0"
         },
         "origin": {
-            "name": "MariaDB Backup Script"
+            "name": "ElkarBackup Script"
         },
         "state_topic": "'$MQTT_STATE_TOPIC'",
         "components": {
-            "mariadb_backup_status": {
+            "elkarbackup_status": {
                 "platform": "sensor",
-                "unique_id": "mariadb_backup_status",
-                "object_id": "mariadb_backup_status",
+                "unique_id": "elkarbackup_status",
+                "object_id": "elkarbackup_status",
                 "has_entity_name": true,
                 "force_update": true,
                 "name": "Status",
@@ -314,10 +314,10 @@ publish_mqtt_discovery() {
                 "device_class": null,
                 "state_class": null
             },
-            "mariadb_backup_duration": {
+            "elkarbackup_duration": {
                 "platform": "sensor",
-                "unique_id": "mariadb_backup_duration",
-                "object_id": "mariadb_backup_duration",
+                "unique_id": "elkarbackup_duration",
+                "object_id": "elkarbackup_duration",
                 "has_entity_name": true,
                 "force_update": true,
                 "name": "Duration",
@@ -328,10 +328,10 @@ publish_mqtt_discovery() {
                 "unit_of_measurement": "s",
                 "state_class": "measurement"
             },
-            "mariadb_backup_size": {
+            "elkarbackup_size": {
                 "platform": "sensor",
-                "unique_id": "mariadb_backup_size",
-                "object_id": "mariadb_backup_size",
+                "unique_id": "elkarbackup_size",
+                "object_id": "elkarbackup_size",
                 "has_entity_name": true,
                 "force_update": true,
                 "name": "Backup Size",
@@ -342,10 +342,10 @@ publish_mqtt_discovery() {
                 "unit_of_measurement": "MB",
                 "state_class": "measurement"
             },
-            "mariadb_backup_compression": {
+            "elkarbackup_compression": {
                 "platform": "sensor",
-                "unique_id": "mariadb_backup_compression",
-                "object_id": "mariadb_backup_compression",
+                "unique_id": "elkarbackup_compression",
+                "object_id": "elkarbackup_compression",
                 "has_entity_name": true,
                 "force_update": true,
                 "name": "Compression Ratio",
@@ -356,10 +356,10 @@ publish_mqtt_discovery() {
                 "unit_of_measurement": "%",
                 "state_class": "measurement"
             },
-            "mariadb_backup_last_run": {
+            "elkarbackup_last_run": {
                 "platform": "sensor",
-                "unique_id": "mariadb_backup_last_run",
-                "object_id": "mariadb_backup_last_run",
+                "unique_id": "elkarbackup_last_run",
+                "object_id": "elkarbackup_last_run",
                 "has_entity_name": true,
                 "force_update": true,
                 "name": "Last Backup",
@@ -368,10 +368,10 @@ publish_mqtt_discovery() {
                 "value_template": "{{ as_datetime(value_json.last_backup_timestamp) }}",
                 "device_class": "timestamp"
             },
-            "mariadb_backup_problem": {
+            "elkarbackup_problem": {
                 "platform": "binary_sensor",
-                "unique_id": "mariadb_backup_problem",
-                "object_id": "mariadb_backup_problem",
+                "unique_id": "elkarbackup_problem",
+                "object_id": "elkarbackup_problem",
                 "has_entity_name": true,
                 "force_update": true,
                 "name": "Backup Problem",
