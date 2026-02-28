@@ -90,17 +90,22 @@ Le fichier `elkarbackup/backup_elkarbackup.conf` doit définir au minimum :
 - `FILE_SUFFIX` : suffixe des fichiers de sauvegarde SQL (par défaut : `_elkar_backup.sql`)
 - `VERIFY_BACKUP` : vérifier l'intégrité de la sauvegarde SQL (par défaut : true)
 
+# Vérification des dumps SQL
+- La vérification des dumps SQL est effectuée systématiquement par le script (paramètre `VERIFY_BACKUP` supprimé).
+
 ### Configuration PBS (Proxmox Backup Server)
 
-- `PBS_ENABLED` : activer l'envoi vers PBS (true/false)
-- `PBS_REPOSITORY` : adresse du dépôt PBS (format : `user@realm@host:datastore`)
+- Envoi vers PBS : actif par défaut. Le paramètre `PBS_ENABLED` a été supprimé — l'envoi vers PBS est pris en charge systématiquement par le script.
+- `PBS_REPOSITORY` : adresse du dépôt PBS (format : `user@realm@host` — le datastore est choisi via `PBS_DATASTORE_DEFAULT` ou l'option `--datastore`)
 - `PBS_PASSWORD` : mot de passe ou token secret du serveur PBS
 - `PBS_FINGERPRINT` : empreinte du certificat SSL du serveur PBS (optionnel mais recommandé)
 - `PBS_BACKUP_ID` : identifiant unique pour le backup côté PBS (par défaut : `elkarbackup`)
-- `PBS_BACKUP_TYPE` : type de sauvegarde sur PBS (par défaut : `host`)
+- `PBS_BACKUP_TYPE` : supprimé (fixé à `host` dans les scripts)
 - `PBS_NAMESPACE` : namespace PBS (optionnel)
 - `PBS_ARCHIVE_NAME` : nom de l'archive dans le snapshot (par défaut : `elkarbackup.pxar`)
 - `PBS_DOCKER_IMAGE` : image Docker pour le client PBS (par défaut : `elkarbackup-pbs-client:latest`)
+
+Remarques sur la compression : pour les envois vers PBS, il ne faut pas compresser localement les dumps — PBS gère la compression et le dédoublonnage. La variable `COMPRESSION_LEVEL` peut rester pour des usages locaux mais est ignorée pour l'envoi vers PBS.
 
 Changements récents (matin) :
 
