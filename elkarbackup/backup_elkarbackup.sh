@@ -134,6 +134,13 @@ LOG_FILE="${LOG_FILE:-/var/log/elkarbackup_backup.log}"
 # Pas besoin de définir `MQTT_DEVICE_TOPIC`/`MQTT_STATE_TOPIC` dans la conf.
 MQTT_DEVICE_TOPIC="homeassistant/device/backup/${PBS_BACKUP_ID}/config"
 MQTT_STATE_TOPIC="backup/${PBS_BACKUP_ID}/state"
+
+# Defaults MQTT (sécurise les variables non définies dans le fichier de conf)
+MQTT_ENABLED="${MQTT_ENABLED:-false}"
+MQTT_HOST="${MQTT_HOST:-}"
+MQTT_PORT="${MQTT_PORT:-1883}"
+MQTT_USER="${MQTT_USER:-}"
+MQTT_PASSWORD="${MQTT_PASSWORD:-}"
 # Variables locales pour le mode test
 TEST_MODE=false
 DUMMY_FILE_SIZE_MB=50
@@ -395,21 +402,21 @@ publish_metrics() {
     local current_timestamp=$(date -Iseconds)
 
     # Création du payload JSON unifié avec toutes les métriques
-    local unified_payload="{
-        \"status\": \"$BACKUP_STATUS\",
-        \"duration\": $BACKUP_DURATION,
-        \"size_mb\": $TOTAL_COMPRESSED_SIZE,
-        \"compression_ratio\": $COMPRESSION_RATIO,
-        \"backup_files\": \"$(IFS=,; echo "${BACKUP_FILES[*]##*/}")\",
-        \"last_backup_timestamp\": \"$current_timestamp\",
-        \"error_message\": \"$ERROR_MESSAGE\",
-        \"backup_date\": \"$BACKUP_DATE\",
-        \"days_kept\": $DAYS_TO_KEEP,
-        \"max_local_backups\": $MAX_LOCAL_BACKUPS,
-        \"pbs_enabled\": $([ "${PBS_ENABLED:-false}" = "true" ] && echo "true" || echo "false"),
-        \"databases\": \"$(IFS=,; echo "${DB_NAMES[*]}")\",
-        \"docker_container\": \"$DOCKER_CONTAINER_NAME\"
-    }"
+        local unified_payload="{
+            \"status\": \"$BACKUP_STATUS\",
+            \"duration\": $BACKUP_DURATION,
+            \"size_mb\": $TOTAL_COMPRESSED_SIZE,
+            \"compression_ratio\": $COMPRESSION_RATIO,
+            \"backup_files\": \"$(IFS=,; echo "${BACKUP_FILES[*]##*/}")\",
+            \"last_backup_timestamp\": \"$current_timestamp\",
+            \"error_message\": \"$ERROR_MESSAGE\",
+            \"backup_date\": \"$BACKUP_DATE\",
+            \"days_kept\": $DAYS_TO_KEEP,
+            \"max_local_backups\": $MAX_LOCAL_BACKUPS,
+            \"pbs_enabled\": true,
+            \"databases\": \"$(IFS=,; echo "${DB_NAMES[*]}")\",
+            \"docker_container\": \"$DOCKER_CONTAINER_NAME\"
+        }"
 
     # Publication du payload unifié sur le topic unique
     mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" \
@@ -445,10 +452,7 @@ ensure_pbs_image() {
 check_pbs_connection() {
     log_info "=== Vérification de la connexion PBS ==="
     
-    if [[ "${PBS_ENABLED:-false}" != "true" ]]; then
-        log_error "PBS_ENABLED n'est pas activé dans la configuration"
-        return 1
-    fi
+    # PBS envoi : le script considère l'envoi vers PBS comme actif par défaut
 
     if [[ -z "${PBS_REPOSITORY:-}" ]]; then
         log_error "PBS_REPOSITORY non défini"
@@ -494,7 +498,8 @@ check_pbs_connection() {
 }
 
 pbs_is_enabled() {
-    [[ "${PBS_ENABLED:-false}" == "true" ]]
+    # L'envoi vers PBS est toujours activé dans ce workflow
+    return 0
 }
 
 pbs_run_backup() {

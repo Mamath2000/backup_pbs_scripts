@@ -51,7 +51,6 @@ PBS_FINGERPRINT=""
 
 # Identifiant/type du snapshot côté PBS
 PBS_BACKUP_ID="elkarbackup"
-# PBS_BACKUP_TYPE removed (fixed to "host" in scripts)
 
 # Namespace PBS (optionnel) - ex: "backup", "hosts"
 PBS_NAMESPACE="hosts"
@@ -73,14 +72,9 @@ MQTT_HOST="192.168.100.9"
 # MQTT_USER=""          # default: empty
 # MQTT_PASSWORD=""      # default: empty
 
-# Topics MQTT
-# Les topics MQTT (device et state) sont construits automatiquement par le script
-# à partir de `PBS_BACKUP_ID` (pas de variable `MQTT_DEVICE_TOPIC`/`MQTT_STATE_TOPIC` à définir).
-
 # ============================================================================
 # CONFIGURATION DU LOGGING
 # ============================================================================
 # Logging: les fichiers sont écrits dans le répertoire "logs" du script.
-# LOG_FILE="/var/log/mariadb_backup.log"  # optionnel, par défaut les scripts utilisent logs/
 # Niveau de logging (DEBUG, INFO, WARN, ERROR)
 LOG_LEVEL="INFO"
