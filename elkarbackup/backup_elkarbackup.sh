@@ -469,7 +469,8 @@ check_pbs_connection() {
         return 1
     fi
 
-    local image="${PBS_DOCKER_IMAGE:-ayufan/proxmox-backup-server:latest}"
+    # Utiliser l'image du client PBS (construite depuis pbs_client/) par défaut
+    local image="${PBS_DOCKER_IMAGE:-proxmox-pbs-client:latest}"
     
     log_info "Repository: ${PBS_REPOSITORY_FULL}"
     log_info "Image Docker: ${image}"
@@ -478,14 +479,15 @@ check_pbs_connection() {
     
     log_info "Test de connexion au serveur PBS..."
     
-    # Test avec proxmox-backup-client login
+    # Test avec proxmox-backup-client login (appel explicite du binaire dans le conteneur)
     local test_result=0
     if docker run --rm --network host \
         -e "PBS_REPOSITORY=${PBS_REPOSITORY_FULL}" \
-        -e "PBS_PASSWORD=${PBS_PASSWORD}" \
+        ${PBS_PASSWORD:+-e "PBS_PASSWORD=${PBS_PASSWORD}"} \
+        ${PBS_PASSWORD_FILE:+-e "PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}"} \
         ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
         "$image" \
-        login --repository "$PBS_REPOSITORY_FULL" 2>&1 | tee -a "$LOG_FILE"; then
+        list --repository "$PBS_REPOSITORY_FULL" ${PBS_NAMESPACE:+--ns "$PBS_NAMESPACE"} 2>&1 | tee -a "$LOG_FILE"; then
         log_info "Connexion PBS réussie!"
         test_result=0
     else
@@ -507,7 +509,7 @@ pbs_run_backup() {
     local backup_id="${PBS_BACKUP_ID:-elkarbackup}"
     local backup_type="${PBS_BACKUP_TYPE:-host}"
     local pbs_namespace="${PBS_NAMESPACE:-}"
-    local image="${PBS_DOCKER_IMAGE:-ayufan/proxmox-backup-server:latest}"
+    local image="${PBS_DOCKER_IMAGE:-proxmox-pbs-client:latest}"
 
     # Vérifier et construire l'image si nécessaire
     if ! ensure_pbs_image; then
@@ -541,6 +543,7 @@ pbs_run_backup() {
         -v "${staging_dir}:/data:ro" \
         -e "PBS_REPOSITORY=${PBS_REPOSITORY_FULL}" \
         ${PBS_PASSWORD:+-e "PBS_PASSWORD=${PBS_PASSWORD}"} \
+        ${PBS_PASSWORD_FILE:+-e "PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}"} \
         ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
         "$image" \
         "${pbs_args[@]}" \
@@ -565,7 +568,7 @@ pbs_backup_files() {
     source_safe=$(sanitize_name "$source_name")
     backup_safe=$(sanitize_name "$backup_name")
 
-    local image="${PBS_DOCKER_IMAGE:-ayufan/proxmox-backup-server:latest}"
+    local image="${PBS_DOCKER_IMAGE:-proxmox-pbs-client:latest}"
 
     # Construire les mounts et specs
     local -a mounts=()
@@ -613,6 +616,7 @@ pbs_backup_files() {
             "${mounts[@]}" \
             -e "PBS_REPOSITORY=${PBS_REPOSITORY_FULL}" \
             ${PBS_PASSWORD:+-e "PBS_PASSWORD=${PBS_PASSWORD}"} \
+            ${PBS_PASSWORD_FILE:+-e "PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}"} \
             ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
             "$image" \
             "${pbs_args[@]}" \
