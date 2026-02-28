@@ -43,7 +43,13 @@ EOF
     exit 0
 }
 
-# Parse des arguments
+
+# Ajout gestion du datastore
+PBS_DATASTORE="${PBS_DATASTORE_DEFAULT:-}" # datastore par défaut
+if [[ -z "$PBS_DATASTORE" ]]; then
+    PBS_DATASTORE="backup" # fallback si non défini
+fi
+PBS_DATASTORE_ARG=""
 while [[ $# -gt 0 ]]; do
     case $1 in
         --backup)
@@ -56,6 +62,15 @@ while [[ $# -gt 0 ]]; do
             ;;
         --dummy-run)
             MODE="dummy-run"
+            shift
+            ;;
+        --datastore)
+            shift
+            if [[ -z "${1:-}" ]]; then
+                echo "Erreur: --datastore requiert un nom de datastore"
+                exit 1
+            fi
+            PBS_DATASTORE_ARG="$1"
             shift
             ;;
         --help|-h)
@@ -102,6 +117,13 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
 fi
 
 source "$CONFIG_FILE"
+
+# Construction de la chaîne PBS_REPOSITORY complète avec le datastore
+if [[ -n "$PBS_DATASTORE_ARG" ]]; then
+    PBS_REPOSITORY_FULL="$PBS_REPOSITORY:$PBS_DATASTORE_ARG"
+else
+    PBS_REPOSITORY_FULL="$PBS_REPOSITORY:$PBS_DATASTORE"
+fi
 # Variables locales pour le mode test
 TEST_MODE=false
 DUMMY_FILE_SIZE_MB=50
@@ -439,7 +461,7 @@ check_pbs_connection() {
 
     local image="${PBS_DOCKER_IMAGE:-ayufan/proxmox-backup-server:latest}"
     
-    log_info "Repository: ${PBS_REPOSITORY}"
+    log_info "Repository: ${PBS_REPOSITORY_FULL}"
     log_info "Image Docker: ${image}"
     [[ -n "${PBS_FINGERPRINT:-}" ]] && log_info "Fingerprint: ${PBS_FINGERPRINT}"
     [[ -n "${PBS_NAMESPACE:-}" ]] && log_info "Namespace: ${PBS_NAMESPACE}"
@@ -449,11 +471,11 @@ check_pbs_connection() {
     # Test avec proxmox-backup-client login
     local test_result=0
     if docker run --rm --network host \
-        -e "PBS_REPOSITORY=${PBS_REPOSITORY}" \
+        -e "PBS_REPOSITORY=${PBS_REPOSITORY_FULL}" \
         -e "PBS_PASSWORD=${PBS_PASSWORD}" \
         ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
         "$image" \
-        login --repository "$PBS_REPOSITORY" 2>&1 | tee -a "$LOG_FILE"; then
+        login --repository "$PBS_REPOSITORY_FULL" 2>&1 | tee -a "$LOG_FILE"; then
         log_info "Connexion PBS réussie!"
         test_result=0
     else
@@ -493,7 +515,7 @@ pbs_run_backup() {
         return 1
     fi
 
-    log_info "Envoi vers PBS: repository='${PBS_REPOSITORY}', backup_id='${backup_id}', type='${backup_type}'"
+    log_info "Envoi vers PBS: repository='${PBS_REPOSITORY_FULL}', backup_id='${backup_id}', type='${backup_type}'"
 
     local -a pbs_args=(
         backup
@@ -501,12 +523,12 @@ pbs_run_backup() {
         --backup-id "$backup_id"
         --backup-type "$backup_type"
         ${pbs_namespace:+--ns "$pbs_namespace"}
-        --repository "$PBS_REPOSITORY"
+        --repository "$PBS_REPOSITORY_FULL"
     )
 
     docker run --rm --network host \
         -v "${staging_dir}:/data:ro" \
-        -e "PBS_REPOSITORY=${PBS_REPOSITORY}" \
+        -e "PBS_REPOSITORY=${PBS_REPOSITORY_FULL}" \
         ${PBS_PASSWORD:+-e "PBS_PASSWORD=${PBS_PASSWORD}"} \
         ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
         "$image" \
