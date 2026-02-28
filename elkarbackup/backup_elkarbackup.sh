@@ -119,6 +119,7 @@ fi
 source "$CONFIG_FILE"
 
 # Construction de la chaîne PBS_REPOSITORY complète avec le datastore
+PBS_DATASTORE="${PBS_DATASTORE_DEFAULT:-backup}"
 if [[ -n "$PBS_DATASTORE_ARG" ]]; then
     PBS_REPOSITORY_FULL="$PBS_REPOSITORY:$PBS_DATASTORE_ARG"
 else
@@ -126,6 +127,8 @@ else
 fi
 # Mode client PBS par défaut (docker ou apt)
 PBS_CLIENT_MODE="${PBS_CLIENT_MODE:-docker}"
+# Défaut du fichier de log si non défini dans la conf
+LOG_FILE="${LOG_FILE:-/var/log/elkarbackup_backup.log}"
 # Variables locales pour le mode test
 TEST_MODE=false
 DUMMY_FILE_SIZE_MB=50
@@ -168,7 +171,6 @@ log() {
     shift
     local message="$*"
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-
     echo "[$timestamp] [$level] $message" | tee -a "$LOG_FILE"
 }
 
