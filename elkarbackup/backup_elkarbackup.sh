@@ -21,6 +21,7 @@ set -euo pipefail
 
 # Répertoire du script
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/backup_elkarbackup.conf"
 
 # Mode d'exécution (backup, check, dummy-run, help)
@@ -419,27 +420,20 @@ publish_metrics() {
 # ============================================================================
 
 ensure_pbs_image() {
-    local pbs_docker_image="${PBS_DOCKER_IMAGE:-elkarbackup-pbs-client:latest}"
-    local compose_file="${SCRIPT_DIR}/pbs-client/docker-compose.yml"
+    local pbs_docker_image="${PBS_DOCKER_IMAGE:-proxmox-pbs-client:latest}"
 
     if docker image inspect "$pbs_docker_image" >/dev/null 2>&1; then
         log_debug "Image PBS déjà présente: $pbs_docker_image"
         return 0
     fi
 
-    log_info "Image PBS non trouvée, tentative de construction..."
+    log_info "Image PBS non trouvée, construction via $REPO_ROOT/pbs_client/build_pbs_client.sh"
 
-    if [[ ! -f "$compose_file" ]]; then
-        log_error "Fichier docker-compose pour PBS non trouvé: $compose_file"
-        return 1
-    fi
-
-    # Construire l'image
-    if docker compose -f "$compose_file" --project-directory "$(dirname "$compose_file")" build 2>&1 | tee -a "$LOG_FILE"; then
+    if "$REPO_ROOT/pbs_client/build_pbs_client.sh" 2>&1 | tee -a "$LOG_FILE"; then
         log_info "Image '$pbs_docker_image' construite avec succès"
         return 0
     else
-        log_error "Échec de la construction de l'image '$pbs_docker_image'"
+        log_error "Échec de la construction de l'image '$pbs_docker_image' via $REPO_ROOT/pbs_client/build_pbs_client.sh"
         return 1
     fi
 }

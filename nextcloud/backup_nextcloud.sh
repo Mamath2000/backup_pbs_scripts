@@ -22,6 +22,7 @@ set -euo pipefail
 
 # Répertoire du script
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/backup_nextcloud.conf"
 
 # Mode d'exécution (backup, check, dummy-run, help)
@@ -375,35 +376,35 @@ publish_metrics() {
 # ============================================================================
 
 ensure_pbs_image() {
-    local image="${PBS_DOCKER_IMAGE:-ayufan/proxmox-backup-server:latest}"
-    
+    local image="${PBS_DOCKER_IMAGE:-proxmox-pbs-client:latest}"
+
     log_debug "Vérification de la présence de l'image Docker: $image"
-    
+
     # Vérifier si l'image existe déjà
     if docker image inspect "$image" &>/dev/null; then
         log_debug "Image Docker '$image' trouvée"
         return 0
     fi
-    
+
     log_warn "Image Docker '$image' non trouvée, construction en cours..."
-    
+
     # Rechercher le docker-compose.yml pour construire l'image
-    local compose_file="${SCRIPT_DIR}/pbs-client/docker-compose.yml"
-    
+    local compose_file="${REPO_ROOT}/pbs_client/docker-compose.yml"
+
     if [[ ! -f "$compose_file" ]]; then
         log_error "Impossible de trouver $compose_file pour construire l'image"
-        log_error "Veuillez construire l'image manuellement avec: cd ${SCRIPT_DIR}/pbs-client && docker compose build"
+        log_error "Veuillez construire l'image manuellement avec: cd ${REPO_ROOT}/pbs_client && docker compose build"
         return 1
     fi
-    
+
     log_info "Construction de l'image depuis: $compose_file"
-    
-    # Construire l'image
-    if docker compose -f "$compose_file" --project-directory "$(dirname "$compose_file")" build 2>&1 | tee -a "$LOG_FILE"; then
+
+    # Utiliser le script de build centralisé
+    if "$REPO_ROOT/pbs_client/build_pbs_client.sh" 2>&1 | tee -a "$LOG_FILE"; then
         log_info "✓ Image '$image' construite avec succès"
         return 0
     else
-        log_error "✗ Échec de la construction de l'image '$image'"
+        log_error "✗ Échec de la construction de l'image '$image' via $REPO_ROOT/pbs_client/build_pbs_client.sh"
         return 1
     fi
 }
@@ -427,39 +428,26 @@ check_pbs_connection() {
     fi
 
     # Vérifier et construire l'image si nécessaire
-    if ! ensure_pbs_image; then
-        log_error "Impossible de préparer l'image Docker PBS"
-        return 1
-    fi
+    ensure_pbs_image() {
+        local image="${PBS_DOCKER_IMAGE:-proxmox-pbs-client:latest}"
 
-    local image="${PBS_DOCKER_IMAGE:-ayufan/proxmox-backup-server:latest}"
-    
-    log_info "Repository: ${PBS_REPOSITORY}"
-    log_info "Image Docker: ${image}"
-    [[ -n "${PBS_FINGERPRINT:-}" ]] && log_info "Fingerprint: ${PBS_FINGERPRINT}"
-    [[ -n "${PBS_NAMESPACE:-}" ]] && log_info "Namespace: ${PBS_NAMESPACE}"
-    
-    log_info "Test de connexion au serveur PBS..."
-    
-    # Test avec proxmox-backup-client login
-    local test_result=0
-    if docker run --rm --network host \
-        -e "PBS_REPOSITORY=${PBS_REPOSITORY}" \
-        -e "PBS_PASSWORD=${PBS_PASSWORD}" \
-        ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
-        "$image" \
-        login --repository "$PBS_REPOSITORY" 2>&1 | tee -a "$LOG_FILE"; then
-        log_info "✓ Connexion PBS réussie!"
-        test_result=0
-    else
-        log_error "✗ Échec de la connexion PBS"
-        test_result=1
-    fi
-    
-    return $test_result
-}
+        log_debug "Vérification de la présence de l'image Docker: $image"
 
-pbs_is_enabled() {
+        if docker image inspect "$image" &>/dev/null; then
+            log_debug "Image Docker '$image' trouvée"
+            return 0
+        fi
+
+        log_warn "Image Docker '$image' non trouvée, construction via $REPO_ROOT/pbs_client/build_pbs_client.sh"
+
+        if "$REPO_ROOT/pbs_client/build_pbs_client.sh" 2>&1 | tee -a "$LOG_FILE"; then
+            log_info "✓ Image '$image' construite avec succès"
+            return 0
+        else
+            log_error "✗ Échec de la construction de l'image '$image' via $REPO_ROOT/pbs_client/build_pbs_client.sh"
+            return 1
+        fi
+    }
     [[ "${PBS_ENABLED:-false}" == "true" ]]
 }
 

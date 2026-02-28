@@ -10,6 +10,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/backup.conf"
 
 
@@ -424,8 +425,8 @@ case "$PBS_CLIENT_MODE" in
     docker)
         # Vérification automatique de l'image Docker
         if ! docker image inspect "$PBS_DOCKER_IMAGE" > /dev/null 2>&1; then
-            log "INFO" "Image $PBS_DOCKER_IMAGE absente, lancement du build..."
-            "$SCRIPT_DIR/build_pbs_client.sh"
+                log "INFO" "Image $PBS_DOCKER_IMAGE absente, lancement du build..."
+                "$REPO_ROOT/pbs_client/build_pbs_client.sh"
         fi
         run_client_docker
         ;;

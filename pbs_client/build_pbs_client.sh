@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# Compile (build) l'image docker du client PBS via docker compose
+# Build script moved into pbs_client/ to build the unified PBS client image
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-COMPOSE_DIR="${REPO_ROOT}/pbs_client"
+COMPOSE_DIR="${SCRIPT_DIR}"
 COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.yml"
 
 if [[ ! -f "$COMPOSE_FILE" ]]; then
