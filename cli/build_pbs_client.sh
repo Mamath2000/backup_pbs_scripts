@@ -4,7 +4,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COMPOSE_DIR="${SCRIPT_DIR}/pbs_client"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+COMPOSE_DIR="${REPO_ROOT}/pbs_client"
 COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.yml"
 
 if [[ ! -f "$COMPOSE_FILE" ]]; then
