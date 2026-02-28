@@ -120,7 +120,12 @@ shift
 PBS_BACKUP_ID="${PBS_BACKUP_ID:-$BACKUP_NAME}"
 
 # Defaults
-LOG_FILE="${LOG_FILE:-${SCRIPT_DIR}/backup.log}"
+# Nom de log suffixé par le nom du backup (sanitisé)
+SAFE_BACKUP_NAME="$(sanitize_name "$BACKUP_NAME")"
+# Fichier de log par défaut dans un sous-répertoire 'logs' du script
+LOG_FILE="${LOG_FILE:-${SCRIPT_DIR}/logs/backup_${SAFE_BACKUP_NAME}.log}"
+# S'assurer que le répertoire de logs existe
+mkdir -p "$(dirname "$LOG_FILE")"
 PBS_CLIENT_MODE="${PBS_CLIENT_MODE:-apt}"
 PBS_BACKUP_TYPE="${PBS_BACKUP_TYPE:-host}"
 PBS_DOCKER_IMAGE="${PBS_DOCKER_IMAGE:-proxmox-pbs-client:latest}"
