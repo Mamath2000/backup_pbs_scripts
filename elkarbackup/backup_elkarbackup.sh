@@ -124,6 +124,8 @@ if [[ -n "$PBS_DATASTORE_ARG" ]]; then
 else
     PBS_REPOSITORY_FULL="$PBS_REPOSITORY:$PBS_DATASTORE"
 fi
+# Mode client PBS par défaut (docker ou apt)
+PBS_CLIENT_MODE="${PBS_CLIENT_MODE:-docker}"
 # Variables locales pour le mode test
 TEST_MODE=false
 DUMMY_FILE_SIZE_MB=50
