@@ -91,7 +91,7 @@ if [[ -z "$MODE" ]]; then
 fi
 
 # Fichier de verrou pour éviter les exécutions multiples
-LOCK_FILE="/var/run/backup_elkarbackup.lock"
+LOCK_FILE="${SCRIPT_DIR}/.backup_elkarbackup.lock"
 
 # Vérification du verrou (non nécessaire en mode check)
 if [[ "$MODE" != "check" ]]; then
