@@ -1,109 +1,169 @@
 ---
 id: backup_pbs
-title: backup_pbs.sh
+title: backup_pbs.sh — CLI générique
 ---
-# `cli/backup_pbs.sh`
 
-Ce script permet de réaliser des sauvegardes de dossiers locaux vers un serveur Proxmox Backup Server (PBS), en utilisant soit le client natif (`proxmox-backup-client` via apt), soit un conteneur Docker. Il propose également un mode de vérification de la connexion à PBS.
+# `cli/backup_pbs.sh` — Sauvegarde générique PBS
 
-## Fonctionnalités principales
-- Sauvegarde d'un seul dossier vers PBS (obligatoire via `-d`)
-- Exclusion de dossiers ou fichiers spécifiques (via `-e`)
-- Support du client PBS via apt ou Docker
-- Configuration centralisée dans un fichier `backup.conf`
-- Logs détaillés
-- Intégration MQTT/Home Assistant (optionnelle)
-- Mode test de connexion (`--check`)
+Script universel pour sauvegarder n'importe quel dossier local vers Proxmox Backup Server via `proxmox-backup-client` (apt ou Docker).
+
+---
+
+## Ce qui est sauvegardé
+
+Un **unique répertoire** (obligatoire via `-d`), envoyé comme archive `.pxar` dans un snapshot PBS. Des exclusions peuvent être ajoutées via `-e`.
+
+Le nom de l'archive dans le snapshot est dérivé du nom du dossier sauvegardé (caractères non alphanumériques remplacés par `_`).
+
+---
 
 ## Utilisation
 
 ### Sauvegarde
+
 ```bash
-cli/backup_pbs.sh "nom-backup" -d /chemin/unique [-e /chemin/exclu]...
+./backup_pbs.sh "nom-backup" -d /chemin/a/sauvegarder [-e /chemin/exclu]...
 ```
-- `nom-backup` : identifiant de la sauvegarde
-- `-d /chemin/unique` : dossier à sauvegarder (obligatoire, un seul)
-- `-e /chemin/exclu` : dossier ou fichier à exclure (peut être répété)
+
+| Argument | Obligatoire | Description |
+|----------|-------------|-------------|
+| `"nom-backup"` | ✓ | Identifiant du backup (utilisé comme `--backup-id` PBS et dans le nom du log) |
+| `-d /chemin` | ✓ | Répertoire source à sauvegarder (un seul) |
+| `-e /chemin` | — | Chemin ou pattern à exclure (répétable) |
+| `--datastore NAME` | — | Datastore PBS cible (surcharge `PBS_DATASTORE_DEFAULT`) |
 
 **Exemples :**
 ```bash
-cli/backup_pbs.sh host-prod -d /etc
-cli/backup_pbs.sh host-prod -d /etc -e /etc/ssl -e /etc/hostname
+./backup_pbs.sh host-prod -d /etc
+./backup_pbs.sh host-prod -d /etc -e /etc/ssl -e /etc/hostname
+./backup_pbs.sh host-prod -d /home --datastore ds2
 ```
 
 ### Test de connexion
+
 ```bash
-cli/backup_pbs.sh --check
-# Exemple avec datastore et namespace
-cli/backup_pbs.sh --check --datastore ds3 --namespace Hosts
+./backup_pbs.sh --check [--datastore NAME] [--namespace NAME]
 ```
-Teste la connexion à PBS et affiche le résultat du test.
 
+Vérifie la connexion à PBS en listant les snapshots disponibles. N'effectue aucune sauvegarde.
 
-## Configuration
-Le fichier `cli/backup.conf` doit être présent dans le même dossier que le script. Il doit définir au minimum :
-- `PBS_REPOSITORY` : URL du dépôt PBS
-- `PBS_PASSWORD` ou `PBS_PASSWORD_FILE` : mot de passe ou fichier contenant le mot de passe
+---
 
-Variables optionnelles :
-- `PBS_CLIENT_MODE` : `apt` (défaut) ou `docker`
-- `PBS_DOCKER_IMAGE` : image Docker à utiliser
-- `LOG_FILE` : chemin du fichier de log
-- `MQTT_ENABLED`, `MQTT_HOST`, etc. pour l'intégration MQTT
+## Configuration — `cli/backup.conf`
 
-Changements récents (matin) :
+Le fichier doit exister et avoir les droits **600** (vérifié au démarrage).
 
-- Docker PBS client unifié : le dépôt contient désormais un répertoire `pbs_client/` à la racine qui fournit le `Dockerfile` et le `docker-compose.yml` pour construire l'image utilisée par tous les scripts. Les scripts appellent automatiquement `pbs_client/build_pbs_client.sh` si l'image Docker configurée (`PBS_DOCKER_IMAGE`) est absente.
-- Logs : par défaut le script CLI crée un sous-répertoire `logs/` à côté du script et écrit le log sous le nom `backup_<sanitized-backup-name>.log` (modifiable via `LOG_FILE`). Les autres scripts conservent la variable `LOG_FILE` dans leur config et peuvent être ajustés si nécessaire.
-- Datastore en ligne de commande : il est possible de préciser le datastore PBS à la volée avec l'option `--datastore <name>`. Un `PBS_DATASTORE_DEFAULT` peut être défini dans la configuration ; `PBS_REPOSITORY` ne contient plus le datastore — le script construit la chaîne complète au runtime comme : `PBS_REPOSITORY_FULL="$PBS_REPOSITORY:$DATASTORE"`.
+### Variables obligatoires
 
-### Sécurité et permissions sur Proxmox Backup Server (PBS)
+| Variable | Description | Exemple |
+|----------|-------------|---------|
+| `PBS_REPOSITORY` | Adresse PBS **sans datastore** (`user@realm@host`) | `shell@pbs@192.168.100.8` |
+| `PBS_DATASTORE_DEFAULT` | Datastore par défaut | `ds3` |
+| `PBS_PASSWORD` | Mot de passe PBS (> 40 caractères) | `…` |
 
-1. **Créer un utilisateur dédié** :
-	- Aller dans l'écran "Contrôle d'accès" de l'interface PBS.
-	- Créer un utilisateur (ex: `shell`) dans le royaume **Proxmox Backup authentification serveur**.
-	- Choisir un mot de passe complexe.
+### Variables optionnelles
 
-2. **Ajouter les permissions nécessaires** :
-	- Aller dans "Permissions".
-	- Ajouter l'utilisateur créé avec :
-	  - Le rôle `audit` sur `/datastore/backup`
-	  - Le rôle `backup` sur `/datastore/backup`
+| Variable | Défaut | Description |
+|----------|--------|-------------|
+| `PBS_FINGERPRINT` | — | Empreinte TLS du serveur PBS |
+| `PBS_NAMESPACE` | — | Namespace PBS (ex: `Hosts`) |
+| `PBS_CLIENT_MODE` | `apt` | `apt` ou `docker` |
+| `PBS_DOCKER_IMAGE` | `proxmox-pbs-client:latest` | Image Docker à utiliser en mode `docker` |
+| `PBS_CHANGE_DETECTION_MODE` | — | Mode de détection des changements (`legacy`, `data`, `metadata`) |
+| `PBS_CLIENT_EXTRA_ARGS` | — | Arguments supplémentaires passés à `proxmox-backup-client` |
+| `MQTT_ENABLED` | `false` | Activer les notifications MQTT |
+| `MQTT_HOST` | `localhost` | Adresse du broker MQTT |
+| `MQTT_PORT` | `1883` | Port MQTT |
+| `MQTT_USER` | — | Utilisateur MQTT |
+| `MQTT_PASSWORD` | — | Mot de passe MQTT |
 
-3. **Sécurité du fichier de configuration** :
-	 - Le script vérifie que le fichier `cli/backup.conf` a des droits stricts (600).
-	 - Si ce n'est pas le cas, le backup est refusé et une erreur est loggée.
-	 - Pour corriger :
-		 ```sh
-		 chmod 600 cli/backup.conf
-		 ```
-	 - Ceci protège vos identifiants et secrets.
-	 - **Le mot de passe PBS (`PBS_PASSWORD`) doit faire plus de 40 caractères**. Le script refusera de lancer le backup si ce n'est pas respecté, pour garantir la robustesse de la sécurité.
+### Construction de `PBS_REPOSITORY_FULL`
+
+Le script construit la chaîne complète au démarrage :
+
+```
+PBS_REPOSITORY_FULL = PBS_REPOSITORY : DATASTORE
+```
+
+Le datastore est déterminé dans cet ordre de priorité :
+1. `--datastore NAME` (CLI)
+2. `PBS_DATASTORE_DEFAULT` (conf)
+3. `backup` (fallback)
+
+---
+
+## Client Docker PBS
+
+Quand `PBS_CLIENT_MODE=docker`, le script utilise l'image `proxmox-pbs-client:latest` construite depuis `pbs_client/` à la racine du dépôt.
+
+Si l'image est absente, elle est **automatiquement construite** via `pbs_client/build_pbs_client.sh`.
+
+**Construction manuelle :**
+```bash
+cd pbs_client/
+./build_pbs_client.sh
+# ou
+docker compose build
+```
+
+En mode Docker, le répertoire source est monté en lecture seule dans le conteneur :
+```
+BACKUP_DIR → /source (ro)
+```
+
+---
 
 ## Logs
-Les logs CLI sont écrits par défaut dans un sous-répertoire `logs/` placé à côté du script. Le fichier de log porte le nom `backup_<nom-sanitized>.log` (où `<nom-sanitized>` est le nom de la sauvegarde nettoyé pour être utilisé comme nom de fichier).
 
-Pour override le comportement, certains scripts acceptent encore la variable `LOG_FILE` dans leur configuration, mais dans les fichiers `*.conf.sample` cette option est laissée commentée par défaut.
+Tous les logs (stdout + stderr du script et des commandes exécutées) sont redirigés vers :
 
-## MQTT / Home Assistant
-Si activé, le script publie l'état de la sauvegarde sur un broker MQTT pour intégration dans Home Assistant.
-
-Activation rapide (dans les fichiers `*.conf.sample`) :
-
-```properties
-# MQTT_ENABLED=false    # default: false (laissez commenté si vous n'utilisez pas MQTT)
-MQTT_HOST="mqtt.example.local"  # obligatoire pour activer
-# MQTT_PORT="1883"      # default: "1883"
-# MQTT_USER=""          # default: empty
-# MQTT_PASSWORD=""      # default: empty
+```
+cli/logs/backup_<nom-sanitisé>.log
 ```
 
-Ne laissez jamais de secrets non protégés dans un dépôt public — conservez `*.conf` avec des permissions restreintes (`chmod 600`).
+Le répertoire `logs/` est créé automatiquement. Le log est également affiché dans le terminal.
+
+---
+
+## Sécurité PBS
+
+```bash
+# Droits sur le fichier de configuration
+chmod 600 cli/backup.conf
+
+# Obtenir le fingerprint du certificat PBS
+openssl s_client -connect <pbs_host>:8007 < /dev/null \
+  | openssl x509 -noout -fingerprint -sha256
+```
+
+**Permissions PBS recommandées pour l'utilisateur dédié :**
+- Rôle `backup` sur `/datastore/<nom>` (pour écrire des snapshots)
+- Rôle `audit` sur `/datastore/<nom>` (pour lister/vérifier)
+
+---
+
+## MQTT / Home Assistant
+
+Quand `MQTT_ENABLED=true`, le script publie :
+- Une **découverte automatique** du device (`homeassistant/device/backup/<id>/config`)
+- Un **état JSON** après chaque backup (`backup/<id>/state`) contenant : statut, durée, timestamp, message d'erreur
+
+---
+
+## Cron
+
+```cron
+0 2 * * * /chemin/vers/cli/backup_pbs.sh host-prod -d /etc >> /dev/null 2>&1
+```
+
+Les logs sont dans `cli/logs/backup_host-prod.log`.
+
+---
 
 ## Dépendances
-- `proxmox-backup-client` (si mode apt)
-- `docker` (si mode docker)
-- `mosquitto_pub` (si MQTT activé)
 
-## Auteur
-Script original par Mamath2000, modifié et documenté avec GitHub Copilot.
+| Outil | Mode | Obligatoire |
+|-------|------|-------------|
+| `proxmox-backup-client` | `apt` | ✓ |
+| `docker` | `docker` | ✓ |
+| `mosquitto_pub` | — | Si `MQTT_ENABLED=true` |
