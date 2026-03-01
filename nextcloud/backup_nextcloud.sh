@@ -46,6 +46,7 @@ EOF
 }
 
 # Parse des arguments
+PBS_DATASTORE_ARG=""
 while [[ $# -gt 0 ]]; do
     case $1 in
         --backup)
@@ -58,6 +59,15 @@ while [[ $# -gt 0 ]]; do
             ;;
         --dummy-run)
             MODE="dummy-run"
+            shift
+            ;;
+        --datastore)
+            shift
+            if [[ -z "${1:-}" ]]; then
+                echo "Erreur: --datastore requiert un nom de datastore"
+                exit 1
+            fi
+            PBS_DATASTORE_ARG="$1"
             shift
             ;;
         --help|-h)
@@ -104,6 +114,23 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
 fi
 
 source "$CONFIG_FILE"
+
+# Construction de la chaîne PBS_REPOSITORY complète avec le datastore
+PBS_DATASTORE="${PBS_DATASTORE_DEFAULT:-backup}"
+if [[ -n "$PBS_DATASTORE_ARG" ]]; then
+    PBS_REPOSITORY_FULL="$PBS_REPOSITORY:$PBS_DATASTORE_ARG"
+else
+    PBS_REPOSITORY_FULL="$PBS_REPOSITORY:$PBS_DATASTORE"
+fi
+
+# Mode client PBS par défaut
+PBS_CLIENT_MODE="${PBS_CLIENT_MODE:-docker}"
+
+# Défauts pour les variables de sauvegarde
+COMPRESSION_LEVEL=0  # Pas de compression locale: PBS gère la déduplication nativement
+DAYS_TO_KEEP="${DAYS_TO_KEEP:-10}"
+MAX_LOCAL_BACKUPS="${MAX_LOCAL_BACKUPS:-2}"
+FILE_SUFFIX="${FILE_SUFFIX:-_nextcloud_backup.sql}"
 
 # Fichier de log par défaut dans un sous-répertoire 'logs' du script
 LOG_FILE="${SCRIPT_DIR}/logs/backup_nextcloud.log"
@@ -739,45 +766,6 @@ verify_backup_integrity() {
         fi
     else
         log_error "Fichier de sauvegarde invalide ou vide"
-        return 1
-    fi
-}
-
-compress_backup() {
-    local backup_file="$1"
-    local compressed_file="${backup_file}.gz"
-    
-    log_info "Compression de la sauvegarde: $(basename "$backup_file")"
-
-    local original_size=$(stat -c%s "$backup_file" 2>/dev/null || stat -f%z "$backup_file")
-
-    if gzip -"$COMPRESSION_LEVEL" -k "$backup_file"; then
-        local compressed_size=$(stat -c%s "$compressed_file" 2>/dev/null || stat -f%z "$compressed_file")
-
-        # Calcul du ratio de compression pour ce fichier
-        local file_compression_ratio=$(( (original_size - compressed_size) * 100 / original_size ))
-        local file_size_mb=$(echo "scale=2; $compressed_size / 1024 / 1024" | bc)
-
-        log_info "Compression réussie. Taille originale: ${original_size} bytes, Compressée: ${compressed_size} bytes (${file_compression_ratio}%)"
-
-        # Mise à jour des totaux
-        TOTAL_BACKUP_SIZE=$((TOTAL_BACKUP_SIZE + original_size))
-        TOTAL_COMPRESSED_SIZE=$(echo "scale=2; $TOTAL_COMPRESSED_SIZE + $file_size_mb" | bc)
-
-        # Suppression du fichier non compressé
-        rm -f "$backup_file"
-
-        # Mise à jour de la liste des fichiers
-        for i in "${!BACKUP_FILES[@]}"; do
-            if [[ "${BACKUP_FILES[i]}" == "$backup_file" ]]; then
-                BACKUP_FILES[i]="$compressed_file"
-                break
-            fi
-        done
-
-        return 0
-    else
-        log_error "Échec de la compression de $(basename "$backup_file")"
         return 1
     fi
 }
