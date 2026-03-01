@@ -1,6 +1,8 @@
 ---
 id: backup_elkarbackup
 title: backup_elkarbackup.sh — Sauvegarde ElkarBackup
+sidebar_label: ElkarBackup
+slug: /backup-elkarbackup
 ---
 
 # `elkarbackup/backup_elkarbackup.sh` — Sauvegarde ElkarBackup

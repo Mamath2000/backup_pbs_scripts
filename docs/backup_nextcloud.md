@@ -1,324 +1,221 @@
 ---
 id: backup_nextcloud
-title: backup_nextcloud.sh
+title: backup_nextcloud.sh — Sauvegarde Nextcloud AIO
+sidebar_label: Nextcloud AIO
+slug: /backup-nextcloud
 ---
 
-## nextcloud/backup_nextcloud.sh
+# `nextcloud/backup_nextcloud.sh` — Sauvegarde Nextcloud AIO
 
-Ce script permet de réaliser des sauvegardes avancées de Nextcloud AIO, avec envoi vers Proxmox Backup Server (PBS), sauvegarde locale, export de la configuration, et publication de métriques vers Home Assistant via MQTT.
+Script dédié à la sauvegarde de l'instance **Nextcloud All-In-One** (PostgreSQL + config + données + sources) vers Proxmox Backup Server via Docker.
 
-## Fonctionnalités principales
+---
 
-- Sauvegarde de la base PostgreSQL Nextcloud (via Docker)
-- Export du fichier de configuration `config.php` (volume Docker)
-- Dump du répertoire parent Nextcloud AIO
-- Sauvegarde locale avec gestion de la rétention (nombre et durée)
-- Envoi distant vers PBS (via Docker)
-- Publication de métriques et état vers MQTT/Home Assistant
-- Gestion d'erreurs robuste et logs détaillés
-- Nettoyage automatique des anciens dumps et exports
-- Mode test avec génération de fichiers dummy
+## Ce qui est sauvegardé
 
-## Utilisation
+| Archive PBS | Source | Description |
+|-------------|--------|-------------|
+| `nextcloud-aio.pxar` | Staging dir (BACKUP_DIR) | Dump SQL + config.php + metadata.json |
+| `nextcloud-aio-src.pxar` | `NEXTCLOUD_AIO_SOURCE_PATH` | Répertoire Docker Nextcloud AIO (volumes, config, mastercontainer…) |
+| `nextcloud-data.pxar` | `NEXTCLOUD_DATA_PATH` | Données utilisateurs Nextcloud |
+
+> **Mode `--dummy-run`** : `nextcloud-data.pxar` est remplacé par un dossier temporaire vide pour tester le backup sans transférer les données.
+
+### Exclusions dans `nextcloud-aio-src.pxar`
+
+| Pattern | Raison |
+|---------|--------|
+| `/ncaio/backup` | Évite de doubler les archives locales |
+| `/ncaio/mastercontainer` | Fichiers runtime du mastercontainer (non nécessaires) |
+
+---
+
+## Étapes du backup
+
+```
+1. Vérification config       — conf, droits, dépendances
+2. Lock fichier              — .backup_nextcloud.lock dans SCRIPT_DIR
+3. Dump PostgreSQL           — docker exec <DOCKER_CONTAINER_NAME> pg_dump
+                               → BACKUP_DIR/YYYYMMDDHHMM_nextcloud_backup.sql
+4. Export config.php         — docker run alpine : copie depuis volume Nextcloud
+                               → BACKUP_DIR/YYYYMMDDHHMM_nextcloud_config.php
+5. Nettoyage local SQL       — suppression des anciens dumps (DAYS_TO_KEEP / MAX_LOCAL_BACKUPS)
+6. Nettoyage local config    — suppression des anciennes config.php
+7. Staging dir               — création sous BACKUP_DIR/ avec :
+                                 • fichier SQL le plus récent (symlink ou copie)
+                                 • fichier config.php le plus récent
+                                 • metadata.json
+8. Sauvegarde PBS            — docker run proxmox-pbs-client:latest backup
+                               nextcloud-aio.pxar:/data
+                               nextcloud-aio-src.pxar:/ncaio
+                               nextcloud-data.pxar:/ncdata
+9. Nettoyage staging         — suppression du répertoire temporaire
+10. Notification MQTT        — si MQTT_ENABLED=true
+11. Libération lock
+```
+
+---
+
+## Configuration — `nextcloud/backup_nextcloud.conf`
+
+Le fichier doit avoir les droits **600** (vérifié au démarrage).
+
+### Variables obligatoires
+
+| Variable | Description | Exemple |
+|----------|-------------|---------|
+| `PBS_REPOSITORY` | Adresse PBS **sans datastore** (`user@realm@host`) | `shell@pbs@192.168.100.8` |
+| `PBS_DATASTORE_DEFAULT` | Datastore PBS cible | `ds0` |
+| `PBS_PASSWORD` | Mot de passe PBS (> 40 caractères) | `…` |
+| `PBS_BACKUP_ID` | Identifiant du snapshot PBS | `nextcloud-aio` |
+| `NEXTCLOUD_AIO_SOURCE_PATH` | Répertoire de l'installation Nextcloud AIO | `/mnt/user/docker/nextcloud-aio` |
+| `NEXTCLOUD_DATA_PATH` | Répertoire des données utilisateurs | `/mnt/user/ncdata` |
+| `DOCKER_CONTAINER_NAME` | Nom du conteneur PostgreSQL | `nextcloud-aio-database` |
+| `DB_USER` | Utilisateur PostgreSQL | `nextcloud` |
+| `DB_NAME` | Nom de la base de données | `nextcloud_database` |
+| `BACKUP_DIR` | Répertoire de dépôt local (dumps, staging) | `/mnt/user/docker/nextcloud-aio/backup/` |
+
+### Variables optionnelles
+
+| Variable | Défaut | Description |
+|----------|--------|-------------|
+| `PBS_FINGERPRINT` | — | Empreinte TLS du serveur PBS |
+| `PBS_NAMESPACE` | — | Namespace PBS (ex: `Hosts`) |
+| `NEXTCLOUD_VOLUME_NAME` | — | Nom du volume Docker Nextcloud (pour export config.php) |
+| `DAYS_TO_KEEP` | `10` | Rétention des dumps locaux (jours) |
+| `MAX_LOCAL_BACKUPS` | `2` | Nombre max de dumps locaux conservés |
+| `MQTT_ENABLED` | `false` | Activer les notifications MQTT |
+| `MQTT_HOST` | `localhost` | Adresse du broker MQTT |
+| `MQTT_PORT` | `1883` | Port MQTT |
+| `MQTT_USER` | — | Utilisateur MQTT |
+| `MQTT_PASSWORD` | — | Mot de passe MQTT |
+| `LOG_LEVEL` | `INFO` | Niveau de log (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+
+> **Note :** `COMPRESSION_LEVEL` est ignoré (forcé à `0` dans le script). PBS assure la compression nativement.
+
+---
+
+## Construction de `PBS_REPOSITORY_FULL`
+
+La construction est **intelligente** pour assurer la compatibilité avec d'anciens fichiers de conf :
+
+```
+Si --datastore en CLI               → PBS_REPOSITORY (sans datastore) : DATASTORE_CLI
+Si PBS_REPOSITORY contient ":"      → PBS_REPOSITORY utilisé tel quel (compat)
+Si PBS_DATASTORE_DEFAULT défini     → PBS_REPOSITORY : PBS_DATASTORE_DEFAULT
+Sinon                               → ERREUR : datastore obligatoire
+```
+
+**Exemple (conf actuelle) :**
+```
+PBS_REPOSITORY="shell@pbs@192.168.100.8"
+PBS_DATASTORE_DEFAULT="ds0"
+→ PBS_REPOSITORY_FULL="shell@pbs@192.168.100.8:ds0"
+```
+
+---
+
+## Client Docker PBS
+
+L'image `proxmox-pbs-client:latest` est utilisée pour exécuter `proxmox-backup-client` sans installation système.
+
+Si l'image est absente, elle est **automatiquement construite** depuis `pbs_client/`.
+
+**Construction manuelle :**
+```bash
+cd pbs_client/
+./build_pbs_client.sh
+```
+
+La commande Docker exécutée lors du backup :
+```bash
+docker run --rm --network host \
+  -e PBS_REPOSITORY="..." \
+  -e PBS_PASSWORD="..." \
+  [-e PBS_FINGERPRINT="..."] \
+  -v "$STAGING_DIR":/data:ro \
+  -v "$NEXTCLOUD_AIO_SOURCE_PATH":/ncaio:ro \
+  -v "$NEXTCLOUD_DATA_PATH":/ncdata:ro \
+  proxmox-pbs-client:latest \
+  backup \
+    nextcloud-aio.pxar:/data \
+    nextcloud-aio-src.pxar:/ncaio \
+    nextcloud-data.pxar:/ncdata \
+    --backup-id "$PBS_BACKUP_ID" \
+    --backup-type host \
+    [--ns "$PBS_NAMESPACE"] \
+    --repository "$PBS_REPOSITORY_FULL" \
+    --exclude /ncaio/backup \
+    --exclude /ncaio/mastercontainer
+```
+
+---
+
+## Test de connexion
 
 ```bash
-# Afficher l'aide (mode par défaut sans argument)
-./backup_nextcloud.sh
-./backup_nextcloud.sh --help
-
-# Sauvegarde normale
-./backup_nextcloud.sh --backup
-
-# Vérifier uniquement la connexion PBS
-./backup_nextcloud.sh --check
-
-# Mode test avec fichiers dummy
-./backup_nextcloud.sh --dummy-run
+./backup_nextcloud.sh --check [--datastore NAME] [--namespace NAME]
 ```
 
-Le script doit être lancé depuis le dossier `nextcloud/` et nécessite un fichier de configuration `backup_nextcloud.conf` adapté.
+Exécute `proxmox-backup-client list` via Docker pour vérifier l'accès au datastore PBS. Affiche la liste des snapshots existants.
 
-### Options disponibles
+---
 
-- `--backup` : Mode normal de sauvegarde
-- `--check` : Vérifie uniquement la connexion au serveur PBS (pas de sauvegarde)
-- `--dummy-run` : Mode test avec fichiers dummy (valide le workflow complet sans vraie sauvegarde)
-- `--help, -h` : Affiche l'aide
-
-**Note** : Si aucune option n'est spécifiée, l'aide est affichée par défaut.
-
-## Résumé des modes d'exécution
-
-| Mode | Commande | Sauvegarde DB | Sauvegarde PBS | Données utilisateur | Backup-ID utilisé | Utilisation |
-| ---- | -------- | ------------- | -------------- | ------------------- | ----------------- | ----------- |
-| **Backup** | `--backup` | ✓ Vraie sauvegarde | ✓ Complète | ✓ Incluses | `PBS_BACKUP_ID` | Production |
-| **Check** | `--check` | ✗ Aucune | ✗ Test connexion uniquement | ✗ Non sauvegardées | N/A | Validation config |
-| **Dummy-run** | `--dummy-run` | ✓ Fichier dummy (50MB) | ✓ Partielle | ✗ **Exclues** | `PBS_BACKUP_ID-dummy` | Tests complets |
-
-### Notes importantes
-
-- **Mode backup** : Sauvegarde complète pour la production, inclut la base de données, config.php, répertoire nextcloud-aio ET toutes les données utilisateur (peut représenter plusieurs centaines de GB)
-- **Mode check** : Uniquement pour vérifier la connexion PBS, ne crée aucune sauvegarde
-- **Mode dummy-run** :
-  - Utilise un backup-id différent (`-dummy` ajouté) pour ne pas écraser les vraies sauvegardes
-  - Exclut automatiquement les données utilisateur (`NEXTCLOUD_DATA_PATH`) pour éviter des transferts de plusieurs centaines de GB
-  - Idéal pour tester la configuration PBS sans impact sur les données
-
-## Configuration
-
-Le fichier `nextcloud/backup_nextcloud.conf` doit définir au minimum :
-
-- `DOCKER_CONTAINER_NAME` : nom du conteneur PostgreSQL Nextcloud
-- `DB_USER`, `DB_NAME` : identifiants de la base
-- `BACKUP_DIR` : dossier de stockage local
-- `PBS_ENABLED`, `PBS_REPOSITORY`, `PBS_PASSWORD`, `PBS_FINGERPRINT`... pour l'envoi PBS
-- `MQTT_ENABLED`, `MQTT_HOST`, etc. pour l'intégration MQTT (optionnel)
-
-Variables importantes :
-
-- `DAYS_TO_KEEP`, `MAX_LOCAL_BACKUPS` : politique de rétention
-- `COMPRESSION_LEVEL` : niveau de compression gzip
-- `VERIFY_BACKUP` : vérification d'intégrité
-- `NEXTCLOUD_DATA_PATH` : chemin vers les données utilisateur Nextcloud (peut être très volumineux)
-  - Inclus en mode `--backup` normal
-  - **Automatiquement exclu** en mode `--dummy-run`
-
-### Image Docker PBS Client
-
-Le script utilise une image Docker personnalisée pour communiquer avec Proxmox Backup Server. Cette image est définie par la variable `PBS_DOCKER_IMAGE` dans le fichier de configuration (par défaut : `nextcloud-pbs-client:latest`).
-
-**Construction automatique** :
-
-Si l'image n'existe pas lors de l'exécution du script, elle sera automatiquement construite depuis le Dockerfile situé dans `nextcloud/pbs-client/`. Cette construction se fait automatiquement avant toute tentative de connexion ou de sauvegarde vers PBS.
-
-**Construction manuelle** (optionnel) :
+## Mode Dummy Run
 
 ```bash
-cd /mnt/user/docker/_scripts/backup_pbs_scripts/nextcloud/pbs-client
-docker compose build
+./backup_nextcloud.sh --backup --dummy-run
 ```
 
-Changements récents (matin) :
+Effectue toutes les étapes sauf l'envoi de `NEXTCLOUD_DATA_PATH` vers PBS (remplacé par un dossier vide). Utile pour tester le processus sans transférer les données volumineuses.
 
-- Docker PBS client unifié : le dépôt contient désormais un répertoire `pbs_client/` à la racine fournissant le `Dockerfile` et `docker-compose.yml` pour construire l'image PBS client utilisée par tous les scripts. Les scripts appellent automatiquement `pbs_client/build_pbs_client.sh` si l'image configurée (`PBS_DOCKER_IMAGE`) est absente. Vous pouvez toujours personnaliser `PBS_DOCKER_IMAGE` dans chaque configuration.
-- Logs : les scripts utilisent la variable `LOG_FILE` dans leur configuration. Le script CLI crée par défaut un dossier `logs/` à côté du script et nomme le fichier `backup_<sanitized-backup-name>.log`. Les chemins sont modifiables via `LOG_FILE`.
-- Datastore en ligne de commande : l'option `--datastore` permet de spécifier le datastore PBS depuis la ligne de commande; `PBS_DATASTORE_DEFAULT` peut être défini dans la conf. `PBS_REPOSITORY` doit contenir uniquement le host/compte et le script construit `PBS_REPOSITORY_FULL` en concaténant `:$DATASTORE`.
-
-## Mode check (--check)
-
-Ce mode permet de vérifier rapidement la connexion au serveur PBS sans effectuer de sauvegarde.
-
-**Utilisation** :
-
-```bash
-./backup_nextcloud.sh --check
-```
-
-**Comportement** :
-
-- Vérifie que PBS_ENABLED, PBS_REPOSITORY et PBS_PASSWORD sont configurés
-- Construit automatiquement l'image Docker PBS si nécessaire
-- Teste la connexion au serveur PBS avec `proxmox-backup-client login`
-- Affiche les informations de configuration (repository, fingerprint, namespace)
-- Ne crée pas de verrou de sauvegarde
-- Ne nécessite pas que le conteneur Nextcloud soit en cours d'exécution
-- Retourne 0 en cas de succès, 1 en cas d'échec
-
-**Idéal pour** :
-
-- Valider la configuration PBS après installation
-- Diagnostiquer des problèmes de connexion
-- Tester les credentials et le fingerprint
-
-## Mode dummy-run (--dummy-run)
-
-Ce mode simule une sauvegarde complète avec des fichiers de test, permettant de valider tout le workflow.
-
-**Configuration** :
-
-```ini
-DUMMY_FILE_SIZE_MB=50
-```
-
-**Utilisation** :
-
-```bash
-./backup_nextcloud.sh --dummy-run
-```
-
-**Comportement** :
-
-- Aucun dump réel de la base de données PostgreSQL n'est effectué
-- Un fichier dummy de la taille spécifiée (`DUMMY_FILE_SIZE_MB`) est généré à la place
-- Les fichiers dummy sont compressés et traités comme de vraies sauvegardes
-- L'envoi vers PBS utilise un **backup-id différent** (suffixe `-dummy` ajouté) pour ne pas mélanger avec les vraies sauvegardes
-  - Exemple : si `PBS_BACKUP_ID=nextcloud-aio`, le mode dummy utilisera `nextcloud-aio-dummy`
-- **Les données utilisateur Nextcloud (NEXTCLOUD_DATA_PATH) ne sont PAS sauvegardées** pour éviter de transférer des centaines de GB
-- Le répertoire nextcloud-aio est sauvegardé normalement (config, scripts, etc.)
-- Les métriques MQTT sont publiées normalement
-- Toutes les étapes de nettoyage et de vérification sont exécutées
-
-**Idéal pour tester** :
-
-- La connectivité vers PBS
-- La configuration MQTT/Home Assistant
-- Les politiques de rétention
-- Les performances du système
-- Le workflow complet sans impact sur la production
-
-## Workflow recommandé
-
-### Première installation
-
-1. **Copier et adapter la configuration** :
-
-   ```bash
-   cd /mnt/user/docker/_scripts/backup_pbs_scripts/nextcloud
-   cp backup_nextcloud.conf.sample backup_nextcloud.conf
-   nano backup_nextcloud.conf
-   ```
-
-2. **Tester la connexion PBS** :
-
-   ```bash
-   ./backup_nextcloud.sh --check
-   ```
-
-   Si l'image PBS n'existe pas, elle sera construite automatiquement.
-
-3. **Lancer un test complet sans données** :
-
-   ```bash
-   ./backup_nextcloud.sh --dummy-run
-   ```
-
-   Cela teste tout le workflow avec des fichiers dummy et un backup-id séparé.
-
-4. **Vérifier dans PBS** que le snapshot `nextcloud-aio-dummy` a été créé
-
-5. **Lancer la première vraie sauvegarde** :
-
-   ```bash
-   ./backup_nextcloud.sh --backup
-   ```
-
-6. **Configurer le cron** pour les sauvegardes automatiques :
-
-   ```bash
-   # Exemple : tous les jours à 2h du matin
-   0 2 * * * /mnt/user/docker/_scripts/backup_pbs_scripts/nextcloud/backup_nextcloud.sh --backup
-   ```
-
-### Nettoyage après tests
-
-Supprimer les snapshots de test dans PBS :
-
-```bash
-proxmox-backup-client snapshot list --repository shell@pbs@192.168.100.8:backup --ns hosts
-proxmox-backup-client snapshot forget host/nextcloud-aio-dummy/YYYY-MM-DDTHH:MM:SSZ --repository shell@pbs@192.168.100.8:backup --ns hosts
-```
-
-## Fonctionnement détaillé
-
-1. **Vérifications préalables** : dépendances (docker, bc, mosquitto_pub), présence du conteneur, verrouillage anti-double exécution.
-2. **Dump de la base PostgreSQL** (ou dummy en mode test), puis export du fichier `config.php`.
-3. **Dump du répertoire parent** (optionnel, pour restauration avancée).
-4. **Compression** (gzip) et calcul des ratios.
-5. **Nettoyage** : suppression des sauvegardes/dumps/exports trop anciens ou trop nombreux.
-6. **Envoi vers PBS** (si activé) : via docker, avec gestion des artefacts et métadonnées.
-7. **Publication MQTT** : état, métriques, découverte Home Assistant.
-8. **Gestion des erreurs** : logs, nettoyage, publication d'état d'échec.
-
-## Sécurité et bonnes pratiques
-
-- Le script crée un fichier de verrou pour éviter les exécutions concurrentes.
-- Les identifiants et secrets doivent être protégés (droits 600 sur le .conf).
-- Les logs sont détaillés et stockés dans le fichier défini par `LOG_FILE`.
-- Les dumps et exports sont supprimés en cas d'échec ou à la fin selon la politique de rétention.
+---
 
 ## Logs
 
-Par défaut, les scripts écrivent les logs dans un répertoire `logs/` situé à côté du script. Le CLI utilise `logs/backup_<sanitized-backup-name>.log` par défaut. Si vous préférez un chemin spécifique, vous pouvez définir `LOG_FILE` dans votre `backup_nextcloud.conf` (dans les samples cette option est commentée par défaut) :
+Tous les logs (stdout + stderr) sont enregistrés dans :
 
-```properties
-# LOG_FILE="/var/log/nextcloud_backup.log"  # optionnel, par défaut les scripts utilisent logs/
 ```
+nextcloud/logs/backup_nextcloud.log
+```
+
+Le répertoire `logs/` est créé automatiquement. Le log est également affiché dans le terminal.
+
+---
+
+## Lock
+
+Un fichier de verrou est créé au démarrage pour empêcher les exécutions simultanées :
+
+```
+nextcloud/.backup_nextcloud.lock
+```
+
+Il est automatiquement supprimé à la fin du script (succès ou erreur).
+
+---
 
 ## MQTT / Home Assistant
 
-Activation rapide (dans les fichiers `*.conf.sample`) :
+Quand `MQTT_ENABLED=true`, le script publie :
+- Une **découverte automatique** (`homeassistant/device/backup/<id>/config`)
+- Un **état JSON** après chaque backup (`backup/<id>/state`) contenant : statut, durée, timestamp, message d'erreur
 
-```properties
-# MQTT_ENABLED=false    # default: false (laissez commenté si vous n'utilisez pas MQTT)
-MQTT_HOST="mqtt.example.local"  # obligatoire pour activer
-# MQTT_PORT="1883"      # default: "1883"
-# MQTT_USER=""          # default: empty
-# MQTT_PASSWORD=""      # default: empty
+---
+
+## Cron
+
+```cron
+0 4 * * * /chemin/vers/nextcloud/backup_nextcloud.sh --backup >> /dev/null 2>&1
 ```
 
-## Exemples de configuration
+Les logs sont dans `nextcloud/logs/backup_nextcloud.log`.
 
-```ini
-DOCKER_CONTAINER_NAME="nextcloud-aio-database"
-DB_USER="nextcloud"
-DB_NAME="nextcloud_database"
-BACKUP_DIR="/mnt/user/docker/nextcloud-aio/backup/"
-DAYS_TO_KEEP=10
-MAX_LOCAL_BACKUPS=2
-COMPRESSION_LEVEL=9
-VERIFY_BACKUP=true
-PBS_ENABLED=true
-PBS_REPOSITORY="user@pbs@pbs.local:backup"
-PBS_PASSWORD="motdepasse-tres-long"
-PBS_FINGERPRINT="..."
-MQTT_ENABLED=true
-MQTT_HOST="192.168.1.100"
-MQTT_PORT="1883"
-MQTT_USER="mqttuser"
-MQTT_PASSWORD="mqttpass"
-
-# Taille des fichiers dummy pour --dummy-run (optionnel)
-DUMMY_FILE_SIZE_MB=50
-```
+---
 
 ## Dépendances
 
-- `docker`
-- `bc`
-- `mosquitto_pub` (si MQTT activé)
-- Accès à PBS via docker (image proxmox-backup-server)
-
-## Gestion des snapshots PBS
-
-### Snapshots de test (mode dummy-run)
-
-Les snapshots créés en mode `--dummy-run` sont identifiés par le suffixe `-dummy` :
-
-- Production : `nextcloud-aio`
-- Test : `nextcloud-aio-dummy`
-
-Pour supprimer les snapshots de test depuis PBS :
-
-```bash
-# Lister les snapshots
-proxmox-backup-client snapshot list --repository user@pbs@server:datastore
-
-# Supprimer un snapshot dummy spécifique
-proxmox-backup-client snapshot forget host/nextcloud-aio-dummy/2026-02-17T16:48:55Z --repository user@pbs@server:datastore
-
-# Supprimer tous les snapshots dummy (attention !)
-proxmox-backup-client snapshot list --repository user@pbs@server:datastore | grep "nextcloud-aio-dummy" | awk '{print $2}' | xargs -I {} proxmox-backup-client snapshot forget {} --repository user@pbs@server:datastore
-```
-
-### Monitoring des sauvegardes
-
-Les métriques MQTT permettent de surveiller l'état des sauvegardes via Home Assistant :
-
-- **État** : success, failed, dump_failed, compression_failed, pbs_failed
-- **Durée** : temps d'exécution en secondes
-- **Tailles** : fichiers compressés et ratios
-- **Dernière sauvegarde** : timestamp de la dernière exécution réussie
-
-## Auteur
-
-Script original par Mamath2000, adapté et documenté avec GitHub Copilot.
+| Outil | Obligatoire |
+|-------|-------------|
+| `docker` | ✓ |
+| `mosquitto_pub` | Si `MQTT_ENABLED=true` |

@@ -1,6 +1,8 @@
 ---
 id: backup_pbs
 title: backup_pbs.sh — CLI générique
+sidebar_label: Sauvegarde PBS
+slug: /backup-pbs
 ---
 
 # `cli/backup_pbs.sh` — Sauvegarde générique PBS
