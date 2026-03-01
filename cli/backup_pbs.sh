@@ -22,8 +22,9 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
 fi
 
 
-# Initialisation LOG_FILE pour usage précoce
-LOG_FILE="/tmp/backup_pbs.log"
+# Initialisation LOG_FILE pour usage précoce (--check et erreurs avant parse des args)
+LOG_FILE="${SCRIPT_DIR}/logs/backup_pbs.log"
+mkdir -p "${SCRIPT_DIR}/logs"
 # Définition de log() avant tout usage
 log() {
     local level="$1"; shift
@@ -164,12 +165,9 @@ shift
 PBS_BACKUP_ID="${PBS_BACKUP_ID:-$BACKUP_NAME}"
 
 # Defaults
-# Nom de log suffixé par le nom du backup (sanitisé)
+# Fichier de log suffixé par le nom du backup (sanitisé)
 SAFE_BACKUP_NAME="$(sanitize_name "$BACKUP_NAME")"
-# Fichier de log par défaut dans un sous-répertoire 'logs' du script
-LOG_FILE="${LOG_FILE:-${SCRIPT_DIR}/logs/backup_${SAFE_BACKUP_NAME}.log}"
-# S'assurer que le répertoire de logs existe
-mkdir -p "$(dirname "$LOG_FILE")"
+LOG_FILE="${SCRIPT_DIR}/logs/backup_${SAFE_BACKUP_NAME}.log"
 PBS_CLIENT_MODE="${PBS_CLIENT_MODE:-apt}"
 PBS_BACKUP_TYPE="${PBS_BACKUP_TYPE:-host}"
 PBS_DOCKER_IMAGE="${PBS_DOCKER_IMAGE:-proxmox-pbs-client:latest}"

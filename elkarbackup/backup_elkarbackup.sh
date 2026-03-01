@@ -128,8 +128,9 @@ else
 fi
 # Mode client PBS par défaut (docker ou apt)
 PBS_CLIENT_MODE="${PBS_CLIENT_MODE:-docker}"
-# Défaut du fichier de log si non défini dans la conf
-LOG_FILE="${LOG_FILE:-/var/log/elkarbackup_backup.log}"
+# Fichier de log dans le sous-répertoire 'logs' du script
+LOG_FILE="${SCRIPT_DIR}/logs/backup_elkarbackup.log"
+mkdir -p "${SCRIPT_DIR}/logs"
 # MQTT topics: construits en dur dans le script (alignés sur CLI)
 # Pas besoin de définir `MQTT_DEVICE_TOPIC`/`MQTT_STATE_TOPIC` dans la conf.
 MQTT_DEVICE_TOPIC="homeassistant/device/backup/${PBS_BACKUP_ID}/config"
@@ -914,8 +915,7 @@ check_dependencies() {
 
 # Mode check: vérifier seulement la connexion PBS
 if [[ "$MODE" == "check" ]]; then
-    # Créer un fichier de log temporaire pour le mode check
-    LOG_FILE="${LOG_FILE:-/tmp/backup_elkarbackup_check.log}"
+    # LOG_FILE déjà initialisé dans logs/ du script
     touch "$LOG_FILE"
     
     # Vérifier les dépendances minimales
