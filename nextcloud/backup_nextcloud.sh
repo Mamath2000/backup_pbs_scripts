@@ -531,7 +531,7 @@ pbs_run_backup() {
         return 1
     fi
 
-    log_info "Envoi vers PBS: repository='${PBS_REPOSITORY}', backup_id='${backup_id}', type='${backup_type}'"
+    log_info "Envoi vers PBS: repository='${PBS_REPOSITORY_FULL}', backup_id='${backup_id}', type='${backup_type}'"
 
     local -a extra_mounts=()
     local -a backup_specs=("${archive_name}:/data")
@@ -575,7 +575,7 @@ pbs_run_backup() {
         ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
         "$image" \
         "${pbs_args[@]}" \
-            2>>"$LOG_FILE"
+            2>&1 | tee -a "$LOG_FILE"
 }
 
 pbs_backup_files() {
