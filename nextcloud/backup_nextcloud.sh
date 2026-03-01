@@ -144,6 +144,7 @@ FILE_SUFFIX="${FILE_SUFFIX:-_nextcloud_backup.sql}"
 # Fichier de log par défaut dans un sous-répertoire 'logs' du script
 LOG_FILE="${SCRIPT_DIR}/logs/backup_nextcloud.log"
 mkdir -p "$(dirname "$LOG_FILE")"
+exec > >(tee -a "${LOG_FILE}") 2>&1
 
 # MQTT topics and defaults: ensure variables are defined and topics built from PBS_BACKUP_ID
 # Les topics sont construits en dur comme dans la CLI
@@ -195,7 +196,7 @@ log() {
     local message="$*"
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
 
-    echo "[$timestamp] [$level] $message" | tee -a "$LOG_FILE"
+    echo "[$timestamp] [$level] $message"
 }
 
 log_info() {
@@ -451,7 +452,7 @@ ensure_pbs_image() {
     log_info "Construction de l'image depuis: $compose_file"
 
     # Utiliser le script de build centralisé
-    if "$REPO_ROOT/pbs_client/build_pbs_client.sh" 2>&1 | tee -a "$LOG_FILE"; then
+    if "$REPO_ROOT/pbs_client/build_pbs_client.sh"; then
         log_info "✓ Image '$image' construite avec succès"
         return 0
     else
@@ -494,7 +495,7 @@ check_pbs_connection() {
         ${PBS_PASSWORD_FILE:+-e "PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}"} \
         ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
         "$image" \
-        list --repository "${PBS_REPOSITORY_FULL}" ${PBS_NAMESPACE:+--ns "$PBS_NAMESPACE"} 2>&1 | tee -a "$LOG_FILE"; then
+        list --repository "${PBS_REPOSITORY_FULL}" ${PBS_NAMESPACE:+--ns "$PBS_NAMESPACE"}; then
         log_info "Connexion PBS réussie!"
         test_result=0
     else
@@ -583,8 +584,7 @@ pbs_run_backup() {
         ${PBS_PASSWORD_FILE:+-e "PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}"} \
         ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
         "$image" \
-        "${pbs_args[@]}" \
-            2>&1 | tee -a "$LOG_FILE"
+        "${pbs_args[@]}"
 }
 
 pbs_backup_files() {
@@ -671,9 +671,9 @@ perform_database_dump() {
 
         log_debug "Commande de dump: $cmd"
 
-        if docker exec -t "$DOCKER_ID" $cmd 2>>"$LOG_FILE"; then
+        if docker exec -t "$DOCKER_ID" $cmd; then
             # Copie du fichier depuis le conteneur
-            if docker cp "${DOCKER_ID}:${temp_file}" "$backup_file" 2>>"$LOG_FILE"; then
+            if docker cp "${DOCKER_ID}:${temp_file}" "$backup_file"; then
                 # Suppression du fichier temporaire dans le conteneur
                 docker exec "$DOCKER_ID" rm "$temp_file" 2>/dev/null || true
                 
@@ -707,7 +707,7 @@ create_dummy_backup() {
     log_debug "Création d'un fichier dummy de test"
 
     # Création du fichier dummy avec dd
-    if dd if=/dev/urandom of="$backup_file" bs=1M count="$DUMMY_FILE_SIZE_MB" 2>>"$LOG_FILE"; then
+    if dd if=/dev/urandom of="$backup_file" bs=1M count="$DUMMY_FILE_SIZE_MB"; then
         log_info "Fichier dummy créé: $(basename "$backup_file") (${DUMMY_FILE_SIZE_MB}MB)"
 
         # Ajout d'un en-tête pour identifier le fichier comme étant un test
@@ -829,7 +829,7 @@ create_directory_dump() {
     # Création du dump en excluant les répertoires backup et mastercontainer
     if tar --exclude='./backup' --exclude='./mastercontainer' \
            -czf "$dump_file" \
-           -C "$source_dir" . 2>>"$LOG_FILE"; then
+           -C "$source_dir" .; then
         
         local dump_size=$(get_size_mb "$dump_file")
         log_info "Dump du répertoire créé avec succès (taille: ${dump_size}MB)"
@@ -885,7 +885,7 @@ export_nextcloud_config() {
     # Lecture via un conteneur temporaire (inspiré de l'édition via alpine), mais en lecture seule
     if docker run --rm \
         --volume "${volume_name}:/var/www/html:ro" \
-        alpine sh -lc "cat '${container_path}'" >"$output_file" 2>>"$LOG_FILE"; then
+        alpine sh -lc "cat '${container_path}'" >"$output_file"; then
 
         if [[ ! -s "$output_file" ]]; then
             log_error "config.php exporté mais vide: $output_file"

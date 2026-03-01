@@ -131,6 +131,7 @@ PBS_CLIENT_MODE="${PBS_CLIENT_MODE:-docker}"
 # Fichier de log dans le sous-répertoire 'logs' du script
 LOG_FILE="${SCRIPT_DIR}/logs/backup_elkarbackup.log"
 mkdir -p "${SCRIPT_DIR}/logs"
+exec > >(tee -a "${LOG_FILE}") 2>&1
 # MQTT topics: construits en dur dans le script (alignés sur CLI)
 # Pas besoin de définir `MQTT_DEVICE_TOPIC`/`MQTT_STATE_TOPIC` dans la conf.
 MQTT_DEVICE_TOPIC="homeassistant/device/backup/${PBS_BACKUP_ID}/config"
@@ -184,7 +185,7 @@ log() {
     shift
     local message="$*"
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    echo "[$timestamp] [$level] $message" | tee -a "$LOG_FILE"
+    echo "[$timestamp] [$level] $message"
 }
 
 log_info() {
@@ -440,7 +441,7 @@ ensure_pbs_image() {
 
     log_info "Image PBS non trouvée, construction via $REPO_ROOT/pbs_client/build_pbs_client.sh"
 
-    if "$REPO_ROOT/pbs_client/build_pbs_client.sh" 2>&1 | tee -a "$LOG_FILE"; then
+    if "$REPO_ROOT/pbs_client/build_pbs_client.sh"; then
         log_info "Image '$pbs_docker_image' construite avec succès"
         return 0
     else
@@ -488,7 +489,7 @@ check_pbs_connection() {
         ${PBS_PASSWORD_FILE:+-e "PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}"} \
         ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
         "$image" \
-        list --repository "$PBS_REPOSITORY_FULL" ${PBS_NAMESPACE:+--ns "$PBS_NAMESPACE"} 2>&1 | tee -a "$LOG_FILE"; then
+        list --repository "$PBS_REPOSITORY_FULL" ${PBS_NAMESPACE:+--ns "$PBS_NAMESPACE"}; then
         log_info "Connexion PBS réussie!"
         test_result=0
     else
@@ -547,8 +548,7 @@ pbs_run_backup() {
         ${PBS_PASSWORD_FILE:+-e "PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}"} \
         ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
         "$image" \
-        "${pbs_args[@]}" \
-            2>>"$LOG_FILE"
+        "${pbs_args[@]}"
 }
 
 pbs_backup_files() {
@@ -620,8 +620,7 @@ pbs_backup_files() {
             ${PBS_PASSWORD_FILE:+-e "PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}"} \
             ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
             "$image" \
-            "${pbs_args[@]}" \
-            2>>"$LOG_FILE"
+            "${pbs_args[@]}"
 
         return $?
     else
@@ -633,7 +632,7 @@ pbs_backup_files() {
 
         env ${PBS_FINGERPRINT:+PBS_FINGERPRINT="$PBS_FINGERPRINT"} \
             ${PBS_PASSWORD:+PBS_PASSWORD="$PBS_PASSWORD"} \
-            proxmox-backup-client backup "${specs[@]}" --repository "$PBS_REPOSITORY_FULL" --backup-id "${PBS_BACKUP_ID:-elkarbackup}" --backup-type "${PBS_BACKUP_TYPE:-host}" ${PBS_NAMESPACE:+--ns "$PBS_NAMESPACE"} "${extra_args_local[@]}" 2>>"$LOG_FILE"
+            proxmox-backup-client backup "${specs[@]}" --repository "$PBS_REPOSITORY_FULL" --backup-id "${PBS_BACKUP_ID:-elkarbackup}" --backup-type "${PBS_BACKUP_TYPE:-host}" ${PBS_NAMESPACE:+--ns "$PBS_NAMESPACE"} "${extra_args_local[@]}"
 
         return $?
     fi
@@ -676,7 +675,7 @@ perform_database_dump() {
         # Commande de dump MariaDB (exécutée directement, sans /bin/bash -c)
         log_debug "Dump MariaDB pour la base: $database (user: $DB_USER)"
 
-        if docker exec -i mariadb mariadb-dump -u"${DB_USER}" -p"${DB_PASSWORD}" --databases "${database}" --skip-comments --single-transaction --routines --triggers > "$backup_file" 2>>"$LOG_FILE"; then
+        if docker exec -i mariadb mariadb-dump -u"${DB_USER}" -p"${DB_PASSWORD}" --databases "${database}" --skip-comments --single-transaction --routines --triggers > "$backup_file"; then
             log_info "Dump de la base de données '$database' réussi"
 
             # Vérification systématique du dump SQL (pas de paramètre nécessaire)
@@ -704,7 +703,7 @@ create_dummy_backup() {
     log_debug "Création d'un fichier dummy de test pour '$database'"
 
     # Création du fichier dummy avec dd
-    if dd if=/dev/urandom of="$backup_file" bs=1M count="$DUMMY_FILE_SIZE_MB" 2>>"$LOG_FILE"; then
+    if dd if=/dev/urandom of="$backup_file" bs=1M count="$DUMMY_FILE_SIZE_MB"; then
         log_info "Fichier dummy créé: $(basename "$backup_file") (${DUMMY_FILE_SIZE_MB}MB)"
 
         # Ajout d'un en-tête pour identifier le fichier comme étant un test

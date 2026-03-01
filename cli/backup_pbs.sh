@@ -25,13 +25,14 @@ fi
 # Initialisation LOG_FILE pour usage précoce (--check et erreurs avant parse des args)
 LOG_FILE="${SCRIPT_DIR}/logs/backup_pbs.log"
 mkdir -p "${SCRIPT_DIR}/logs"
+exec > >(tee -a "${LOG_FILE}") 2>&1
 # Définition de log() avant tout usage
 log() {
     local level="$1"; shift
     local msg="$*"
     local ts
     ts="$(date '+%Y-%m-%d %H:%M:%S')"
-    echo "[$ts] [$level] $msg" | tee -a "${LOG_FILE}"
+    echo "[$ts] [$level] $msg"
 }
 
 # Vérification des droits sur le fichier de configuration
@@ -50,7 +51,7 @@ log() {
     local msg="$*"
     local ts
     ts="$(date '+%Y-%m-%d %H:%M:%S')"
-    echo "[$ts] [$level] $msg" | tee -a "${LOG_FILE}"
+    echo "[$ts] [$level] $msg"
 }
 
 usage() {
@@ -455,8 +456,7 @@ run_client_docker() {
         ${PBS_PASSWORD_FILE:+-e "PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}"} \
         ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
         "$PBS_DOCKER_IMAGE" \
-        "${pbs_args[@]}" \
-        2>>"$LOG_FILE"
+        "${pbs_args[@]}"
 }
 
 case "$PBS_CLIENT_MODE" in
