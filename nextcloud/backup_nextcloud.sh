@@ -105,6 +105,10 @@ fi
 
 source "$CONFIG_FILE"
 
+# Fichier de log par défaut dans un sous-répertoire 'logs' du script
+LOG_FILE="${SCRIPT_DIR}/logs/backup_nextcloud.log"
+mkdir -p "$(dirname "$LOG_FILE")"
+
 # MQTT topics and defaults: ensure variables are defined and topics built from PBS_BACKUP_ID
 # Les topics sont construits en dur comme dans la CLI
 MQTT_DEVICE_TOPIC="homeassistant/device/backup/${PBS_BACKUP_ID}/config"
@@ -439,7 +443,7 @@ check_pbs_connection() {
         return 1
     fi
 
-    local image="${PBS_DOCKER_IMAGE:-ayufan/proxmox-backup-server:latest}"
+    local image="${PBS_DOCKER_IMAGE:-proxmox-pbs-client:latest}"
 
     log_info "Repository: ${PBS_REPOSITORY_FULL:-$PBS_REPOSITORY}"
     [[ -n "${PBS_FINGERPRINT:-}" ]] && log_info "Fingerprint: ${PBS_FINGERPRINT}"
@@ -447,14 +451,14 @@ check_pbs_connection() {
 
     log_info "Test de connexion au serveur PBS..."
 
-    # Test avec proxmox-backup-client login
     local test_result=0
     if docker run --rm --network host \
-        -e "PBS_REPOSITORY=${PBS_REPOSITORY_FULL:-$PBS_REPOSITORY}" \
-        -e "PBS_PASSWORD=${PBS_PASSWORD}" \
+        -e "PBS_REPOSITORY=${PBS_REPOSITORY_FULL}" \
+        ${PBS_PASSWORD:+-e "PBS_PASSWORD=${PBS_PASSWORD}"} \
+        ${PBS_PASSWORD_FILE:+-e "PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}"} \
         ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
         "$image" \
-        login --repository "${PBS_REPOSITORY_FULL:-$PBS_REPOSITORY}" 2>&1 | tee -a "$LOG_FILE"; then
+        list --repository "${PBS_REPOSITORY_FULL}" ${PBS_NAMESPACE:+--ns "$PBS_NAMESPACE"} 2>&1 | tee -a "$LOG_FILE"; then
         log_info "Connexion PBS réussie!"
         test_result=0
     else
@@ -475,7 +479,7 @@ pbs_run_backup() {
     local ncaio_archive_name="${NEXTCLOUD_AIO_ARCHIVE_NAME:-nextcloud-aio-src.pxar}"
     local data_path="${NEXTCLOUD_DATA_PATH:-}"
     local data_archive_name="${NEXTCLOUD_DATA_ARCHIVE_NAME:-nextcloud-data.pxar}"
-    local image="${PBS_DOCKER_IMAGE:-ayufan/proxmox-backup-server:latest}"
+    local image="${PBS_DOCKER_IMAGE:-proxmox-pbs-client:latest}"
 
     # Vérifier et construire l'image si nécessaire
     if ! ensure_pbs_image; then
@@ -530,7 +534,7 @@ pbs_run_backup() {
         --backup-id "$backup_id"
         --backup-type "$backup_type"
         ${pbs_namespace:+--ns "$pbs_namespace"}
-        --repository "$PBS_REPOSITORY"
+        --repository "$PBS_REPOSITORY_FULL"
         --exclude "/ncaio/backup"
         --exclude "/ncaio/mastercontainer"
     )
@@ -538,8 +542,9 @@ pbs_run_backup() {
     docker run --rm --network host \
         -v "${staging_dir}:/data:ro" \
         "${extra_mounts[@]}" \
-        -e "PBS_REPOSITORY=${PBS_REPOSITORY}" \
+        -e "PBS_REPOSITORY=${PBS_REPOSITORY_FULL}" \
         ${PBS_PASSWORD:+-e "PBS_PASSWORD=${PBS_PASSWORD}"} \
+        ${PBS_PASSWORD_FILE:+-e "PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}"} \
         ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
         "$image" \
         "${pbs_args[@]}" \
@@ -549,10 +554,6 @@ pbs_run_backup() {
 pbs_backup_files() {
     local -a files=("$@")
 
-    if ! pbs_is_enabled; then
-        log_info "PBS désactivé, transfert ignoré"
-        return 0
-    fi
 
     local staging_dir
     staging_dir=$(mktemp -d -p "${BACKUP_DIR%/}" ".pbs-staging.${BACKUP_DATE}.XXXXXX")
