@@ -98,6 +98,12 @@ cd /mnt/user/docker/_scripts/backup_pbs_scripts/nextcloud/pbs-client
 docker compose build
 ```
 
+Changements récents (matin) :
+
+- Docker PBS client unifié : le dépôt contient désormais un répertoire `pbs_client/` à la racine fournissant le `Dockerfile` et `docker-compose.yml` pour construire l'image PBS client utilisée par tous les scripts. Les scripts appellent automatiquement `pbs_client/build_pbs_client.sh` si l'image configurée (`PBS_DOCKER_IMAGE`) est absente. Vous pouvez toujours personnaliser `PBS_DOCKER_IMAGE` dans chaque configuration.
+- Logs : les scripts utilisent la variable `LOG_FILE` dans leur configuration. Le script CLI crée par défaut un dossier `logs/` à côté du script et nomme le fichier `backup_<sanitized-backup-name>.log`. Les chemins sont modifiables via `LOG_FILE`.
+- Datastore en ligne de commande : l'option `--datastore` permet de spécifier le datastore PBS depuis la ligne de commande; `PBS_DATASTORE_DEFAULT` peut être défini dans la conf. `PBS_REPOSITORY` doit contenir uniquement le host/compte et le script construit `PBS_REPOSITORY_FULL` en concaténant `:$DATASTORE`.
+
 ## Mode check (--check)
 
 Ce mode permet de vérifier rapidement la connexion au serveur PBS sans effectuer de sauvegarde.
@@ -229,6 +235,26 @@ proxmox-backup-client snapshot forget host/nextcloud-aio-dummy/YYYY-MM-DDTHH:MM:
 - Les identifiants et secrets doivent être protégés (droits 600 sur le .conf).
 - Les logs sont détaillés et stockés dans le fichier défini par `LOG_FILE`.
 - Les dumps et exports sont supprimés en cas d'échec ou à la fin selon la politique de rétention.
+
+## Logs
+
+Par défaut, les scripts écrivent les logs dans un répertoire `logs/` situé à côté du script. Le CLI utilise `logs/backup_<sanitized-backup-name>.log` par défaut. Si vous préférez un chemin spécifique, vous pouvez définir `LOG_FILE` dans votre `backup_nextcloud.conf` (dans les samples cette option est commentée par défaut) :
+
+```properties
+# LOG_FILE="/var/log/nextcloud_backup.log"  # optionnel, par défaut les scripts utilisent logs/
+```
+
+## MQTT / Home Assistant
+
+Activation rapide (dans les fichiers `*.conf.sample`) :
+
+```properties
+# MQTT_ENABLED=false    # default: false (laissez commenté si vous n'utilisez pas MQTT)
+MQTT_HOST="mqtt.example.local"  # obligatoire pour activer
+# MQTT_PORT="1883"      # default: "1883"
+# MQTT_USER=""          # default: empty
+# MQTT_PASSWORD=""      # default: empty
+```
 
 ## Exemples de configuration
 

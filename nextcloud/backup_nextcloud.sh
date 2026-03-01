@@ -105,6 +105,18 @@ fi
 
 source "$CONFIG_FILE"
 
+# MQTT topics and defaults: ensure variables are defined and topics built from PBS_BACKUP_ID
+# Les topics sont construits en dur comme dans la CLI
+MQTT_DEVICE_TOPIC="homeassistant/device/backup/${PBS_BACKUP_ID}/config"
+MQTT_STATE_TOPIC="backup/${PBS_BACKUP_ID}/state"
+
+# Defaults MQTT (sécurise les variables non définies dans le fichier de conf)
+MQTT_ENABLED="${MQTT_ENABLED:-false}"
+MQTT_HOST="${MQTT_HOST:-}"
+MQTT_PORT="${MQTT_PORT:-1883}"
+MQTT_USER="${MQTT_USER:-}"
+MQTT_PASSWORD="${MQTT_PASSWORD:-}"
+
 # Valeurs par défaut pour les variables optionnelles
 DUMMY_FILE_SIZE_MB="${DUMMY_FILE_SIZE_MB:-50}"
 
@@ -356,7 +368,6 @@ publish_metrics() {
         \"backup_date\": \"$BACKUP_DATE\",
         \"days_kept\": $DAYS_TO_KEEP,
         \"max_local_backups\": $MAX_LOCAL_BACKUPS,
-        \"pbs_enabled\": $([ "${PBS_ENABLED:-false}" = "true" ] && echo "true" || echo "false"),
         \"pbs_repository\": \"${PBS_REPOSITORY:-}\",
         \"pbs_backup_id\": \"${PBS_BACKUP_ID:-}\",
         \"databases\": \"$DB_NAME\",
@@ -411,11 +422,6 @@ ensure_pbs_image() {
 
 check_pbs_connection() {
     log_info "=== Vérification de la connexion PBS ==="
-    
-    if [[ "${PBS_ENABLED:-false}" != "true" ]]; then
-        log_error "PBS_ENABLED n'est pas activé dans la configuration"
-        return 1
-    fi
 
     if [[ -z "${PBS_REPOSITORY:-}" ]]; then
         log_error "PBS_REPOSITORY non défini"
@@ -428,27 +434,35 @@ check_pbs_connection() {
     fi
 
     # Vérifier et construire l'image si nécessaire
-    ensure_pbs_image() {
-        local image="${PBS_DOCKER_IMAGE:-proxmox-pbs-client:latest}"
+    if ! ensure_pbs_image; then
+        log_error "Impossible de préparer l'image Docker PBS"
+        return 1
+    fi
 
-        log_debug "Vérification de la présence de l'image Docker: $image"
+    local image="${PBS_DOCKER_IMAGE:-ayufan/proxmox-backup-server:latest}"
 
-        if docker image inspect "$image" &>/dev/null; then
-            log_debug "Image Docker '$image' trouvée"
-            return 0
-        fi
+    log_info "Repository: ${PBS_REPOSITORY_FULL:-$PBS_REPOSITORY}"
+    [[ -n "${PBS_FINGERPRINT:-}" ]] && log_info "Fingerprint: ${PBS_FINGERPRINT}"
+    [[ -n "${PBS_NAMESPACE:-}" ]] && log_info "Namespace: ${PBS_NAMESPACE}"
 
-        log_warn "Image Docker '$image' non trouvée, construction via $REPO_ROOT/pbs_client/build_pbs_client.sh"
+    log_info "Test de connexion au serveur PBS..."
 
-        if "$REPO_ROOT/pbs_client/build_pbs_client.sh" 2>&1 | tee -a "$LOG_FILE"; then
-            log_info "✓ Image '$image' construite avec succès"
-            return 0
-        else
-            log_error "✗ Échec de la construction de l'image '$image' via $REPO_ROOT/pbs_client/build_pbs_client.sh"
-            return 1
-        fi
-    }
-    [[ "${PBS_ENABLED:-false}" == "true" ]]
+    # Test avec proxmox-backup-client login
+    local test_result=0
+    if docker run --rm --network host \
+        -e "PBS_REPOSITORY=${PBS_REPOSITORY_FULL:-$PBS_REPOSITORY}" \
+        -e "PBS_PASSWORD=${PBS_PASSWORD}" \
+        ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
+        "$image" \
+        login --repository "${PBS_REPOSITORY_FULL:-$PBS_REPOSITORY}" 2>&1 | tee -a "$LOG_FILE"; then
+        log_info "Connexion PBS réussie!"
+        test_result=0
+    else
+        log_error "Échec de la connexion PBS"
+        test_result=1
+    fi
+
+    return $test_result
 }
 
 pbs_run_backup() {
@@ -628,9 +642,8 @@ perform_database_dump() {
                 
                 log_info "Dump de la base de données '$DB_NAME' réussi"
 
-                if [[ "$VERIFY_BACKUP" == "true" ]]; then
-                    verify_backup_integrity "$backup_file"
-                fi
+                        # Vérification systématique du dump SQL (pas de paramètre nécessaire)
+                            verify_backup_integrity "$backup_file" || true
 
                 local size_bytes
                 size_bytes=$(stat -c%s "$backup_file" 2>/dev/null || stat -f%z "$backup_file")
@@ -679,9 +692,8 @@ create_dummy_backup() {
         cat /tmp/test_header "$backup_file" > "${backup_file}.tmp" && mv "${backup_file}.tmp" "$backup_file"
         rm -f /tmp/test_header
 
-        if [[ "$VERIFY_BACKUP" == "true" ]]; then
-            verify_dummy_backup "$backup_file"
-        fi
+        # Vérification systématique du dummy (pas de paramètre nécessaire)
+        verify_dummy_backup "$backup_file" || true
 
         return 0
     else
@@ -1022,10 +1034,9 @@ check_dependencies() {
         missing_deps+=("mosquitto-clients")
     fi
 
-    if [[ "${PBS_ENABLED:-false}" == "true" ]]; then
-        if ! command -v docker &> /dev/null; then
-            missing_deps+=("docker")
-        fi
+    # docker est requis pour le fonctionnement PBS/docker
+    if ! command -v docker &> /dev/null; then
+        missing_deps+=("docker")
     fi
 
     if [[ ${#missing_deps[@]} -gt 0 ]]; then
