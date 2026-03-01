@@ -116,11 +116,20 @@ fi
 source "$CONFIG_FILE"
 
 # Construction de la chaîne PBS_REPOSITORY complète avec le datastore
-PBS_DATASTORE="${PBS_DATASTORE_DEFAULT:-backup}"
+# Si PBS_REPOSITORY contient déjà un datastore (ex: user@realm@host:ds), on l'utilise tel quel
+# sauf si --datastore est passé en argument
+PBS_DATASTORE="${PBS_DATASTORE_DEFAULT:-}"
 if [[ -n "$PBS_DATASTORE_ARG" ]]; then
-    PBS_REPOSITORY_FULL="$PBS_REPOSITORY:$PBS_DATASTORE_ARG"
-else
+    # --datastore CLI a priorité absolue : on strip l'éventuel datastore du repo et on ajoute le bon
+    PBS_REPOSITORY_FULL="${PBS_REPOSITORY%%:*}:${PBS_DATASTORE_ARG}"
+elif [[ "$PBS_REPOSITORY" == *:* ]]; then
+    # PBS_REPOSITORY contient déjà le datastore
+    PBS_REPOSITORY_FULL="$PBS_REPOSITORY"
+elif [[ -n "$PBS_DATASTORE" ]]; then
     PBS_REPOSITORY_FULL="$PBS_REPOSITORY:$PBS_DATASTORE"
+else
+    echo "ERREUR: PBS_REPOSITORY ne contient pas de datastore et PBS_DATASTORE_DEFAULT n'est pas défini" >&2
+    exit 1
 fi
 
 # Mode client PBS par défaut
