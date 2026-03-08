@@ -59,7 +59,7 @@ Le fichier doit exister et avoir les droits **600** (vérifié au démarrage).
 
 | Variable | Description | Exemple |
 |----------|-------------|---------|
-| `PBS_REPOSITORY` | Adresse PBS **sans datastore** (`user@realm@host`) | `shell@pbs@192.168.100.8` |
+| `PBS_REPOSITORY` | Adresse PBS **sans datastore** (`user@realm@host`) | `user@pbs@192.168.1.10` |
 | `PBS_DATASTORE_DEFAULT` | Datastore par défaut | `ds3` |
 | `PBS_PASSWORD` | Mot de passe PBS (> 40 caractères) | `…` |
 

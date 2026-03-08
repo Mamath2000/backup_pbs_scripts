@@ -39,8 +39,8 @@ PBS_ENABLED=true
 # Exemples:
 #   "backup@pbs!token@192.168.1.10:datastore"
 #   "root@pam@192.168.1.10:datastore"
-#   "shell@pbs@192.168.100.8:backup"
-PBS_REPOSITORY="shell@pbs@192.168.100.8:backup"
+#   "user@pbs@192.168.1.10:backup"
+PBS_REPOSITORY="user@pbs@192.168.1.10:backup"
 
 # Mot de passe / secret (si token, souvent le secret du token)
 PBS_PASSWORD="your_pbs_password_here"
@@ -67,7 +67,7 @@ PBS_ARCHIVE_NAME="elkarbackup.pxar"
 # MQTT_ENABLED=false     # default: false
 
 # Informations de connexion MQTT (à configurer si MQTT_ENABLED=true)
-MQTT_HOST="192.168.100.9"
+MQTT_HOST="192.168.1.11"
 # MQTT_PORT="1883"      # default: "1883"
 # MQTT_USER=""          # default: empty
 # MQTT_PASSWORD=""      # default: empty

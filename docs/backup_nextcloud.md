@@ -64,7 +64,7 @@ Le fichier doit avoir les droits **600** (vérifié au démarrage).
 
 | Variable | Description | Exemple |
 |----------|-------------|---------|
-| `PBS_REPOSITORY` | Adresse PBS **sans datastore** (`user@realm@host`) | `shell@pbs@192.168.100.8` |
+| `PBS_REPOSITORY` | Adresse PBS **sans datastore** (`user@realm@host`) | `user@pbs@192.168.1.10` |
 | `PBS_DATASTORE_DEFAULT` | Datastore PBS cible | `ds0` |
 | `PBS_PASSWORD` | Mot de passe PBS (> 40 caractères) | `…` |
 | `PBS_BACKUP_ID` | Identifiant du snapshot PBS | `nextcloud-aio` |
@@ -108,9 +108,9 @@ Sinon                               → ERREUR : datastore obligatoire
 
 **Exemple (conf actuelle) :**
 ```
-PBS_REPOSITORY="shell@pbs@192.168.100.8"
+PBS_REPOSITORY="user@pbs@192.168.1.10"
 PBS_DATASTORE_DEFAULT="ds0"
-→ PBS_REPOSITORY_FULL="shell@pbs@192.168.100.8:ds0"
+→ PBS_REPOSITORY_FULL="user@pbs@192.168.1.10:ds0"
 ```
 
 ---

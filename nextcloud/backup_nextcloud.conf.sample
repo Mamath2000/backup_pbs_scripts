@@ -27,9 +27,9 @@ NEXTCLOUD_DATA_ARCHIVE_NAME="nextcloud-data.pxar"
 PBS_ENABLED=true
 NEXTCLOUD_AIO_SOURCE_PATH="/mnt/user/docker/nextcloud-aio"
 NEXTCLOUD_AIO_ARCHIVE_NAME="nextcloud-aio-src.pxar"
-PBS_REPOSITORY="shell@pbs@192.168.100.8:backup"
+PBS_REPOSITORY="user@pbs@192.168.1.10:backup"
 PBS_PASSWORD="votre-mot-de-passe-tres-long"
-PBS_FINGERPRINT="09:68:b7:7b:e2:3e:e6:3d:4b:66:6f:16:fc:0a:54:45:a4:06:a7:f6:65:4d:47:2a:e0:e1:92:cb:db:4a:7c:ca"
+PBS_FINGERPRINT="AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99"
 PBS_BACKUP_ID="nextcloud-aio"
 PBS_NAMESPACE="Hosts"
 PBS_ARCHIVE_NAME="nextcloud-aio.pxar"
@@ -38,7 +38,7 @@ PBS_ARCHIVE_NAME="nextcloud-aio.pxar"
 # ===================== MQTT / HOME ASSISTANT =====================
 # Seul `MQTT_HOST` est obligatoire ; autres valeurs par défaut ci-dessous
 # MQTT_ENABLED=false       # default: false
-MQTT_HOST="192.168.100.9"
+MQTT_HOST="192.168.1.11"
 # MQTT_PORT="1883"        # default: "1883"
 # MQTT_USER=""            # default: empty
 # MQTT_PASSWORD=""        # default: empty
