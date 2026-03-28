@@ -1,6 +1,12 @@
 #!/bin/bash
 # Exemple de configuration pour `backup_postgres.sh`
 # Copier ce fichier en `backup_postgres.conf` et adapter les valeurs.
+# NOTE: Ce script effectue désormais TOUJOURS une sauvegarde complète du
+# cluster PostgreSQL via `pg_basebackup`. 
+
+# Authentification: le script suppose l'utilisation de ~/.pgpass pour
+# l'authentification PostgreSQL. Ne placez PAS de mot de passe en clair dans
+# ce fichier de configuration.
 
 #########################
 # Général / Logging
