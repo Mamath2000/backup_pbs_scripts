@@ -129,9 +129,6 @@ TEST_FILE_SUFFIX="${TEST_FILE_SUFFIX:-_test}"
 # Activer/désactiver la compression (true|false)
 COMPRESSION_ENABLED="${COMPRESSION_ENABLED:-true}"
 
-# Si true, effectuer une sauvegarde complète du cluster via pg_basebackup
-CLUSTER_BACKUP="${CLUSTER_BACKUP:-false}"
-
 # ============================================================================
 # FONCTIONS UTILITAIRES
 # ============================================================================
@@ -430,20 +427,38 @@ perform_cluster_backup() {
     fi
 
     log_info "Début de la sauvegarde complète du cluster via pg_basebackup"
+    # pg_basebackup ne peut pas envoyer les WAL vers stdout en mode tar.
+    # Nous écrivons le backup dans un répertoire temporaire puis créons
+    # une archive tar unique à partir de ce répertoire.
 
-    # pg_basebackup écrit un tar si -F t et -D - ; on redirige la sortie vers le fichier de backup
-    local -a basebackup_cmd=(pg_basebackup -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -D - -F t --wal-method=stream --checkpoint=fast)
+    local tmpdir
+    tmpdir=$(mktemp -d -p "${BACKUP_DIR%/}" "pgbase.XXXXXX") || {
+        log_error "Impossible de créer un répertoire temporaire pour pg_basebackup"
+        return 1
+    }
 
-    log_debug "Commande pg_basebackup: ${basebackup_cmd[*]} > $BACKUP_PATH"
+    log_debug "pg_basebackup -> répertoire temporaire: $tmpdir"
 
-    if "${basebackup_cmd[@]}" >"$BACKUP_PATH" 2>>"$LOG_FILE"; then
-        log_info "pg_basebackup terminé avec succès"
+    if pg_basebackup -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -D "$tmpdir" -X stream --checkpoint=fast 2>>"$LOG_FILE"; then
+        log_info "pg_basebackup écrit dans $tmpdir"
+    else
+        log_error "Échec de pg_basebackup (voir $LOG_FILE)"
+        rm -rf "$tmpdir" || true
+        return 1
+    fi
+
+    # Créer une archive tar à partir du répertoire temporaire
+    log_debug "Création de l'archive tar: $BACKUP_PATH"
+    if tar -C "$tmpdir" -cf "$BACKUP_PATH" . 2>>"$LOG_FILE"; then
+        log_info "Archive créée: $BACKUP_PATH"
+        rm -rf "$tmpdir" || true
         if [[ "$VERIFY_BACKUP" == "true" ]]; then
             verify_backup_integrity
         fi
         return 0
     else
-        log_error "Échec de pg_basebackup"
+        log_error "Échec de la création de l'archive tar (voir $LOG_FILE)"
+        rm -rf "$tmpdir" || true
         return 1
     fi
 }
@@ -561,161 +576,83 @@ cleanup_old_backups() {
 # ============================================================================
 
 main() {
-    log_info "=== Début de la sauvegarde PostgreSQL ==="
+    log_info "=== Début de la sauvegarde PostgreSQL (cluster) ==="
     log_info "Fichier de sauvegarde: $BACKUP_FILE"
-    
+
     publish_mqtt_discovery
-    
+
     BACKUP_STATUS="running"
     PBS_STATUS=$([ "${PBS_ENABLED:-false}" = "true" ] && echo "pending" || echo "disabled")
     PBS_OK="false"
     publish_metrics
-    
+
     create_backup_directory
     local overall_success=true
 
-    # Si on demande une sauvegarde complète du cluster, faire un seul pg_basebackup
-    if [[ "${CLUSTER_BACKUP}" == "true" ]]; then
-        log_info "--- Sauvegarde complète du cluster (pg_basebackup) ---"
+    log_info "--- Sauvegarde complète du cluster (pg_basebackup) ---"
 
-        if [[ "${TEST_MODE:-false}" == "true" ]]; then
-            local test_suffix="${TEST_FILE_SUFFIX:-_test}"
-        else
-            local test_suffix=""
-        fi
-
-        BACKUP_FILE="${BACKUP_DATE}_cluster${test_suffix}${FILE_SUFFIX}"
-        BACKUP_PATH="${BACKUP_DIR}${BACKUP_FILE}"
-        COMPRESSED_PATH="${BACKUP_PATH}.gz"
-        BACKUP_FILE_COMPRESSED="${BACKUP_FILE}.gz"
-
-        if perform_cluster_backup; then
-            local pbs_successful=true
-            if pbs_is_enabled; then
-                if ! pbs_backup_file "$BACKUP_PATH"; then
-                    pbs_successful=false
-                fi
-            fi
-
-            if [[ "${PBS_ENABLED:-false}" == "true" ]]; then
-                PBS_STATUS=$([[ "$pbs_successful" == true ]] && echo "ok" || echo "failed")
-                PBS_OK=$([[ "$pbs_successful" == true ]] && echo "true" || echo "false")
-            else
-                PBS_STATUS="disabled"
-                PBS_OK="false"
-            fi
-
-            if ! compress_backup; then
-                BACKUP_STATUS="compression_failed"
-                ERROR_MESSAGE="Échec de la compression locale"
-                overall_success=false
-            else
-                cleanup_old_backups
-                if [[ "$pbs_successful" == true ]]; then
-                    BACKUP_STATUS="success"
-                    log_info "Sauvegarde cluster terminée avec succès"
-                else
-                    BACKUP_STATUS="failed"
-                    ERROR_MESSAGE="Échec de l'envoi PBS"
-                    log_error "Sauvegarde locale compressée OK mais envoi PBS en échec pour cluster"
-                    overall_success=false
-                fi
-            fi
-        else
-            BACKUP_STATUS="dump_failed"
-            ERROR_MESSAGE="Échec de pg_basebackup"
-            PBS_STATUS=$([ "${PBS_ENABLED:-false}" = "true" ] && echo "failed" || echo "disabled")
-            PBS_OK="false"
-            overall_success=false
-        fi
-
-        BACKUP_DURATION=$(($(date +%s) - START_TIME))
-        publish_metrics
-
-        if [[ "$overall_success" == true ]]; then
-            log_info "=== Sauvegarde cluster terminée avec succès ==="
-            return 0
-        else
-            log_error "=== Sauvegarde cluster échouée ==="
-            return 1
-        fi
+    if [[ "${TEST_MODE:-false}" == "true" ]]; then
+        test_suffix="${TEST_FILE_SUFFIX:-_test}"
+    else
+        test_suffix=""
     fi
 
-    for target_db in "${BACKUP_TARGETS[@]}"; do
-        log_info "--- Sauvegarde de la base: ${target_db} ---"
+    BACKUP_FILE="${BACKUP_DATE}_cluster${test_suffix}${FILE_SUFFIX}"
+    BACKUP_PATH="${BACKUP_DIR}${BACKUP_FILE}"
+    COMPRESSED_PATH="${BACKUP_PATH}.gz"
+    BACKUP_FILE_COMPRESSED="${BACKUP_FILE}.gz"
 
-        DB_NAME="${target_db}"
-        if [[ "${TEST_MODE:-false}" == "true" ]]; then
-            local test_suffix="${TEST_FILE_SUFFIX:-_test}"
-        else
-            local test_suffix=""
+    if perform_cluster_backup; then
+        pbs_successful=true
+        if pbs_is_enabled; then
+            if ! pbs_backup_file "$BACKUP_PATH"; then
+                pbs_successful=false
+            fi
         fi
 
-        BACKUP_FILE="${BACKUP_DATE}_${DB_NAME}${test_suffix}${FILE_SUFFIX}"
-        BACKUP_PATH="${BACKUP_DIR}${BACKUP_FILE}"
-        COMPRESSED_PATH="${BACKUP_PATH}.gz"
-        BACKUP_FILE_COMPRESSED="${BACKUP_FILE}.gz"
-
-        BACKUP_STATUS="running"
-        PBS_STATUS=$([ "${PBS_ENABLED:-false}" = "true" ] && echo "pending" || echo "disabled")
-        PBS_OK="false"
-        publish_metrics
-
-        if perform_database_dump; then
-            local pbs_successful=true
-            if pbs_is_enabled; then
-                if ! pbs_backup_file "$BACKUP_PATH"; then
-                    pbs_successful=false
-                fi
-            fi
-
-            if [[ "${PBS_ENABLED:-false}" == "true" ]]; then
-                PBS_STATUS=$([[ "$pbs_successful" == true ]] && echo "ok" || echo "failed")
-                PBS_OK=$([[ "$pbs_successful" == true ]] && echo "true" || echo "false")
-            else
-                PBS_STATUS="disabled"
-                PBS_OK="false"
-            fi
-
-            if ! compress_backup; then
-                BACKUP_STATUS="compression_failed"
-                ERROR_MESSAGE="Échec de la compression locale"
-                overall_success=false
-            else
-                cleanup_old_backups
-                if [[ "$pbs_successful" == true ]]; then
-                    BACKUP_STATUS="success"
-                    log_info "Sauvegarde de ${DB_NAME} terminée avec succès"
-                else
-                    BACKUP_STATUS="failed"
-                    ERROR_MESSAGE="Échec de l'envoi PBS"
-                    log_error "Sauvegarde locale compressée OK mais envoi PBS en échec pour ${DB_NAME}"
-                    overall_success=false
-                fi
-            fi
+        if [[ "${PBS_ENABLED:-false}" == "true" ]]; then
+            PBS_STATUS=$([[ "$pbs_successful" == true ]] && echo "ok" || echo "failed")
+            PBS_OK=$([[ "$pbs_successful" == true ]] && echo "true" || echo "false")
         else
-            BACKUP_STATUS="dump_failed"
-            ERROR_MESSAGE="Échec du dump de la base de données ${DB_NAME}"
-            PBS_STATUS=$([ "${PBS_ENABLED:-false}" = "true" ] && echo "failed" || echo "disabled")
+            PBS_STATUS="disabled"
             PBS_OK="false"
-            overall_success=false
         fi
 
-        BACKUP_DURATION=$(($(date +%s) - START_TIME))
-        publish_metrics
-    done
+        if ! compress_backup; then
+            BACKUP_STATUS="compression_failed"
+            ERROR_MESSAGE="Échec de la compression locale"
+            overall_success=false
+        else
+            cleanup_old_backups
+            if [[ "$pbs_successful" == true ]]; then
+                BACKUP_STATUS="success"
+                log_info "Sauvegarde cluster terminée avec succès"
+            else
+                BACKUP_STATUS="failed"
+                ERROR_MESSAGE="Échec de l'envoi PBS"
+                log_error "Sauvegarde locale compressée OK mais envoi PBS en échec pour cluster"
+                overall_success=false
+            fi
+        fi
+    else
+        BACKUP_STATUS="dump_failed"
+        ERROR_MESSAGE="Échec de pg_basebackup"
+        PBS_STATUS=$([ "${PBS_ENABLED:-false}" = "true" ] && echo "failed" || echo "disabled")
+        PBS_OK="false"
+        overall_success=false
+    fi
+
+    BACKUP_DURATION=$(($(date +%s) - START_TIME))
+    publish_metrics
 
     if [[ "$overall_success" == true ]]; then
-        log_info "=== Toutes les sauvegardes terminées avec succès ==="
-        BACKUP_STATUS="success"
+        log_info "=== Sauvegarde cluster terminée avec succès ==="
     else
-        log_error "=== Au moins une sauvegarde a échoué ==="
-        BACKUP_STATUS="failed"
+        log_error "=== Sauvegarde cluster échouée ==="
         return 1
     fi
-    
+
     BACKUP_DURATION=$(($(date +%s) - START_TIME))
-    
     log_info "Durée totale: ${BACKUP_DURATION}s"
     log_info "Taille finale: ${BACKUP_SIZE}MB"
     log_info "Ratio de compression: ${COMPRESSION_RATIO}%"
@@ -728,16 +665,14 @@ main() {
 check_dependencies() {
     local missing_deps=()
     
-    for tool in pg_dump bc; do
+    for tool in bc; do
         if ! command -v "$tool" &> /dev/null; then
             missing_deps+=("$tool")
         fi
     done
 
-    if [[ "${CLUSTER_BACKUP}" == "true" ]]; then
-        if ! command -v pg_basebackup &> /dev/null; then
-            missing_deps+=("postgresql-base")
-        fi
+    if ! command -v pg_basebackup &> /dev/null; then
+        missing_deps+=("postgresql-base")
     fi
     
     if [[ "$MQTT_ENABLED" == "true" ]] && ! command -v mosquitto_pub &> /dev/null; then
