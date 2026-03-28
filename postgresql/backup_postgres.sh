@@ -16,32 +16,75 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Permet d'override le fichier de config via variable d'environnement CONFIG_FILE
 CONFIG_FILE="${CONFIG_FILE:-${SCRIPT_DIR}/backup_postgres.conf}"
 
-# Fichier de verrou pour éviter les exécutions multiples
-LOCK_FILE="/var/run/postgres_backup.lock"
+# CLI parsing pour sélectionner le mode d'exécution
+# Par défaut, aucun mode : afficher l'aide si aucun argument fourni
+MODE=""
+usage() {
+    cat <<USAGE
+Usage: $0 [--backup|--check|--dummy-run|--help]
 
-# Vérification du verrou
-if [[ -f "$LOCK_FILE" ]]; then
-    LOCK_PID=$(cat "$LOCK_FILE" 2>/dev/null)
-    if [[ -n "$LOCK_PID" ]] && kill -0 "$LOCK_PID" 2>/dev/null; then
-        echo "ERREUR: Une autre instance du script est déjà en cours (PID: $LOCK_PID)"
-        exit 1
-    else
-        echo "Suppression d'un verrou obsolète"
-        rm -f "$LOCK_FILE"
-    fi
+--backup      : effectuer une sauvegarde (par défaut)
+--check       : exécuter les vérifications / test PBS (skip lock)
+--dummy-run   : exécuter en mode simulation (active TEST_MODE=true)
+--help, -h    : afficher cette aide
+USAGE
+    exit 0
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --backup) MODE="backup"; shift ;;
+        --check) MODE="check"; shift ;;
+        --dummy-run) MODE="dummy-run"; shift ;;
+        --help|-h) usage ;;
+        *) echo "Argument inconnu: $1"; usage ;;
+    esac
+done
+
+# Si aucun mode n'a été fourni, afficher l'aide (comportement par défaut)
+if [[ -z "${MODE}" ]]; then
+    usage
 fi
 
-# Création du verrou
-echo $$ > "$LOCK_FILE"
+# Fichier de verrou pour éviter les exécutions multiples (valeur par défaut dans SCRIPT_DIR)
+LOCK_FILE="${LOCK_FILE:-${SCRIPT_DIR}/.backup_postgres.lock}"
+
+# Vérification du verrou (sautée en mode check)
+if [[ "${MODE}" != "check" ]]; then
+    if [[ -f "$LOCK_FILE" ]]; then
+        LOCK_PID=$(cat "$LOCK_FILE" 2>/dev/null)
+        if [[ -n "$LOCK_PID" ]] && kill -0 "$LOCK_PID" 2>/dev/null; then
+            echo "ERREUR: Une autre instance du script est déjà en cours (PID: $LOCK_PID)"
+            exit 1
+        else
+            echo "Suppression d'un verrou obsolète"
+            rm -f "$LOCK_FILE"
+        fi
+    fi
+
+    # Création du verrou
+    echo $$ > "$LOCK_FILE"
+fi
 
 # Chargement de la configuration
 if [[ ! -f "$CONFIG_FILE" ]]; then
     echo "ERREUR: Fichier de configuration non trouvé: $CONFIG_FILE"
-    rm -f "$LOCK_FILE"
+    [[ "${MODE}" != "check" ]] && rm -f "$LOCK_FILE"
     exit 1
 fi
 
 source "$CONFIG_FILE"
+
+# Après le sourcing: définir LOG_FILE par défaut et assurer le répertoire existe
+LOG_FILE="${LOG_FILE:-${SCRIPT_DIR}/logs/postgres_backup.log}"
+mkdir -p "$(dirname "$LOG_FILE")"
+
+# Authentification: on suppose l'utilisation de ~/.pgpass (le script n'expose pas de mot de passe)
+
+# Si mode dummy-run demandé via CLI, activer TEST_MODE
+if [[ "${MODE}" == "dummy-run" ]]; then
+    TEST_MODE="true"
+fi
 
 # Variables globales
 START_TIME=$(date +%s)
@@ -86,6 +129,9 @@ TEST_FILE_SUFFIX="${TEST_FILE_SUFFIX:-_test}"
 # Activer/désactiver la compression (true|false)
 COMPRESSION_ENABLED="${COMPRESSION_ENABLED:-true}"
 
+# Si true, effectuer une sauvegarde complète du cluster via pg_basebackup
+CLUSTER_BACKUP="${CLUSTER_BACKUP:-false}"
+
 # ============================================================================
 # FONCTIONS UTILITAIRES
 # ============================================================================
@@ -121,7 +167,6 @@ cleanup() {
     
     if [[ $exit_code -ne 0 ]]; then
         log_error "Script interrompu avec le code d'erreur: $exit_code"
-        # Ne pas écraser un statut plus précis (dump_failed, etc.)
         if [[ "$BACKUP_STATUS" == "unknown" || "$BACKUP_STATUS" == "running" || "$BACKUP_STATUS" == "success" ]]; then
             BACKUP_STATUS="failed"
         fi
@@ -129,19 +174,16 @@ cleanup() {
             ERROR_MESSAGE="Script interrompu avec le code d'erreur: $exit_code"
         fi
         
-        # Nettoyage des fichiers temporaires
         [[ -f "$BACKUP_PATH" ]] && rm -f "$BACKUP_PATH"
         [[ -f "$COMPRESSED_PATH" ]] && rm -f "$COMPRESSED_PATH"
     fi
     
-    # Calcul de la durée finale
     BACKUP_DURATION=$(($(date +%s) - START_TIME))
-    
-    # Publication des métriques finales
     publish_metrics
     
-    # Suppression du verrou
-    rm -f "$LOCK_FILE"
+    if [[ "${MODE}" != "check" ]]; then
+        rm -f "$LOCK_FILE"
+    fi
     
     exit $exit_code
 }
@@ -159,7 +201,6 @@ publish_mqtt_discovery() {
     
     log_debug "Publication de la déclaration de device MQTT"
     
-    # Configuration du device avec tous les composants
     local device_config='{
         "device": {
             "identifiers": ["postgres_backup_monitor"],
@@ -184,87 +225,10 @@ publish_mqtt_discovery() {
                 "value_template": "{{ value_json.status }}",
                 "device_class": null,
                 "state_class": null
-            },
-            "duration": {
-                "platform": "sensor",
-                "unique_id": "postgres_backup_duration",
-                "default_entity_id": "sensor.postgres_backup_duration",
-                "has_entity_name": true,
-                "force_update": true,
-                "name": "Duration",
-                "icon": "mdi:timer-outline",
-                "value_template": "{{ value_json.duration }}",
-                "device_class": "duration",
-                "unit_of_measurement": "s",
-                "state_class": "measurement"
-            },
-            "size": {
-                "platform": "sensor",
-                "unique_id": "postgres_backup_size",
-                "default_entity_id": "sensor.postgres_backup_size",
-                "has_entity_name": true,
-                "force_update": true,
-                "name": "Backup Size",
-                "icon": "mdi:file-document-outline",
-                "value_template": "{{ value_json.size_mb }}",
-                "device_class": "data_size",
-                "unit_of_measurement": "MB",
-                "state_class": "measurement"
-            },
-            "compression": {
-                "platform": "sensor",
-                "unique_id": "postgres_backup_compression",
-                "default_entity_id": "sensor.postgres_backup_compression",
-                "has_entity_name": true,
-                "force_update": true,
-                "name": "Compression Ratio",
-                "icon": "mdi:archive",
-                "value_template": "{{ value_json.compression_ratio }}",
-                "device_class": null,
-                "unit_of_measurement": "%",
-                "state_class": "measurement"
-            },
-            "last_run": {
-                "platform": "sensor",
-                "unique_id": "postgres_backup_last_run",
-                "default_entity_id": "sensor.postgres_backup_last_run",
-                "has_entity_name": true,
-                "force_update": true,
-                "name": "Last Backup",
-                "icon": "mdi:clock-outline",
-                "value_template": "{{ as_datetime(value_json.last_backup_timestamp) }}",
-                "device_class": "timestamp"
-            },
-            "problem": {
-                "platform": "binary_sensor",
-                "unique_id": "postgres_backup_problem",
-                "default_entity_id": "binary_sensor.postgres_backup_problem",
-                "has_entity_name": true,
-                "force_update": true,
-                "name": "Backup Problem",
-                "icon": "mdi:alert-circle",
-                "value_template": "{{ \"failed\" if value_json.status in [\"failed\", \"dump_failed\"] else \"success\" }}",
-                "device_class": "problem",
-                "payload_on": "failed",
-                "payload_off": "success"
-            },
-            "pbs_status": {
-                "platform": "binary_sensor",
-                "unique_id": "postgres_backup_pbs_status",
-                "default_entity_id": "binary_sensor.postgres_backup_pbs_status",
-                "has_entity_name": true,
-                "force_update": true,
-                "name": "PBS Backup OK",
-                "icon": "mdi:cloud-check",
-                "value_template": "{{ value_json.pbs_ok }}",
-                "device_class": "problem",
-                "payload_on": false,
-                "payload_off": true
             }
         }
     }'
     
-    # Publication de la configuration du device
     mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" \
         ${MQTT_USER:+-u "$MQTT_USER"} ${MQTT_PASSWORD:+-P "$MQTT_PASSWORD"} \
         -t "$MQTT_DEVICE_TOPIC" -m "$device_config" -r 2>/dev/null || true
@@ -277,32 +241,10 @@ publish_metrics() {
     
     log_debug "Publication des métriques MQTT unifiées"
     
-    # Calcul du timestamp ISO8601
     local current_timestamp=$(date -Iseconds)
     
-    # Création du payload JSON unifié avec toutes les métriques
-    local unified_payload="{
-        \"status\": \"$BACKUP_STATUS\",
-        \"duration\": $BACKUP_DURATION,
-        \"size_mb\": $BACKUP_SIZE,
-        \"compression_ratio\": $COMPRESSION_RATIO,
-        \"backup_file\": \"$BACKUP_FILE_COMPRESSED\",
-        \"last_backup_timestamp\": \"$current_timestamp\",
-        \"error_message\": \"$ERROR_MESSAGE\",
-        \"backup_date\": \"$BACKUP_DATE\",
-        \"days_kept\": $DAYS_TO_KEEP,
-        \"pbs_enabled\": $([ "${PBS_ENABLED:-false}" = "true" ] && echo "true" || echo "false"),
-        \"pbs_ok\": $([ "$PBS_OK" = "true" ] && echo "true" || echo "false"),
-        \"pbs_status\": \"$PBS_STATUS\",
-        \"pbs_repository\": \"${PBS_REPOSITORY:-}\",
-        \"pbs_backup_id\": \"${PBS_BACKUP_ID:-}\",
-        \"database_name\": \"$DB_NAME\",
-        \"database_host\": \"$DB_HOST\",
-        \"test_mode\": $([ "$TEST_MODE" = "true" ] && echo "true" || echo "false"),
-        \"test_dummy_size_mb\": $TEST_DUMMY_SIZE_MB
-    }"
+    local unified_payload="{\n        \"status\": \"$BACKUP_STATUS\",\n        \"duration\": $BACKUP_DURATION,\n        \"size_mb\": $BACKUP_SIZE,\n        \"compression_ratio\": $COMPRESSION_RATIO,\n        \"backup_file\": \"$BACKUP_FILE_COMPRESSED\",\n        \"last_backup_timestamp\": \"$current_timestamp\",\n        \"error_message\": \"$ERROR_MESSAGE\",\n        \"backup_date\": \"$BACKUP_DATE\",\n        \"days_kept\": $DAYS_TO_KEEP,\n        \"pbs_enabled\": $( [ "${PBS_ENABLED:-false}" = "true" ] && echo "true" || echo "false" ),\n        \"pbs_ok\": $( [ "$PBS_OK" = "true" ] && echo "true" || echo "false" ),\n        \"pbs_status\": \"$PBS_STATUS\",\n        \"pbs_repository\": \"${PBS_REPOSITORY:-}\",\n        \"pbs_backup_id\": \"${PBS_BACKUP_ID:-}\",\n        \"database_name\": \"$DB_NAME\",\n        \"database_host\": \"$DB_HOST\",\n        \"test_mode\": $( [ "$TEST_MODE" = "true" ] && echo "true" || echo "false" ),\n        \"test_dummy_size_mb\": $TEST_DUMMY_SIZE_MB\n    }"
     
-    # Publication du payload unifié sur le topic unique
     mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" \
         ${MQTT_USER:+-u "$MQTT_USER"} ${MQTT_PASSWORD:+-P "$MQTT_PASSWORD"} \
         -t "$MQTT_STATE_TOPIC" -m "$unified_payload" -r 2>/dev/null || true
@@ -331,10 +273,8 @@ pbs_run_backup() {
         return 1
     fi
 
-    # Récupérer correctement tous les arguments de spécification
     local -a backup_specs=("$@")
 
-    # Construire l'argument --repository en ajoutant PBS_DATASTORE si fourni
     local repo_arg="${PBS_REPOSITORY}"
     if [[ -n "${PBS_DATASTORE:-}" && "$repo_arg" != *":"* ]]; then
         repo_arg="${repo_arg}:${PBS_DATASTORE}"
@@ -343,11 +283,9 @@ pbs_run_backup() {
     log_info "Envoi vers PBS: repository='${repo_arg}', backup_id='${backup_id}', type='${backup_type}'"
 
     local -a pbs_args=("${pbs_client}" backup)
-    # ajouter les spécifications d'archive
     for spec in "${backup_specs[@]}"; do
         pbs_args+=("$spec")
     done
-
     pbs_args+=(--backup-id "$backup_id" --backup-type "$backup_type")
     if [[ -n "$pbs_namespace" ]]; then
         pbs_args+=(--ns "$pbs_namespace")
@@ -408,40 +346,32 @@ EOF
     local archive_name="${archive_prefix}.pxar"
     local meta_archive_name="${PBS_METADATA_ARCHIVE_NAME:-metadata.pxar}"
 
-    # Préparer les sous-répertoires attendus par proxmox-backup-client
     mkdir -p "$staging_dir/meta" "$staging_dir/data"
-    # déplacer metadata.json dans meta
     mv "$staging_dir/metadata.json" "$staging_dir/meta/metadata.json"
 
-    # placer le fichier de sauvegarde dans data
     mv "$staged_file" "$staging_dir/data/" || {
         log_error "Échec de déplacement du fichier vers staging/data"
         rm -rf "$staging_dir" || true
         return 1
     }
 
-    # Choisir l'ID PBS en fonction de la base: utiliser un ID dédié pour ltss si fourni
     local pbs_backup_id="${PBS_BACKUP_ID:-postgres}"
     if [[ "${DB_NAME}" == "${LTSS_DB_NAME:-ltss}" && -n "${PBS_BACKUP_ID_LTSS:-}" ]]; then
         pbs_backup_id="${PBS_BACKUP_ID_LTSS}"
     fi
 
-    # Sauvegarder la valeur précédente et la remplacer temporairement
     local old_pbs_backup_id="${PBS_BACKUP_ID:-}"
     PBS_BACKUP_ID="$pbs_backup_id"
 
-    # Construire les backupspecs: <archive_name>:<source_dir>
     local meta_spec="${meta_archive_name}:${staging_dir}/meta"
     local data_spec="${archive_name}:${staging_dir}/data"
 
     log_info "Préparation PBS: meta_spec='${meta_spec}', data_spec='${data_spec}', backup_id='${PBS_BACKUP_ID}'"
 
-    # Appel de l'envoi vers PBS
     if pbs_run_backup "$meta_spec" "$data_spec"; then
         log_info "Envoi PBS réussi pour ${BACKUP_FILE} (backup_id=${PBS_BACKUP_ID})"
         PBS_OK="true"
         PBS_STATUS="ok"
-        # restaurer l'ID précédent
         PBS_BACKUP_ID="${old_pbs_backup_id}"
         rm -rf "$staging_dir" || true
         return 0
@@ -449,7 +379,6 @@ EOF
         log_error "Échec de l'envoi PBS"
         PBS_OK="false"
         PBS_STATUS="failed"
-        # restaurer l'ID précédent
         PBS_BACKUP_ID="${old_pbs_backup_id}"
         rm -rf "$staging_dir" || true
         return 1
@@ -472,39 +401,61 @@ perform_database_dump() {
         log_info "MODE TEST: Création d'un fichier dummy de ${TEST_DUMMY_SIZE_MB}MB"
         create_dummy_backup
         return $?
-    else
-        log_info "Début de la sauvegarde de la base de données: $DB_NAME"
-        
-        local dump_cmd="pg_dump --host $DB_HOST --port $DB_PORT -U $DB_USER $DB_NAME -f $BACKUP_PATH --no-password --format=t --blobs --create --clean --if-exists"
-        
-        log_debug "Commande de dump: $dump_cmd"
-        
-        if PGPASSWORD="$DB_PASSWORD" $dump_cmd 2>>"$LOG_FILE"; then
-            log_info "Dump de la base de données réussi"
-            
-            if [[ "$VERIFY_BACKUP" == "true" ]]; then
-                verify_backup_integrity
-            fi
-            
-            return 0
-        else
-            log_error "Échec du dump de la base de données"
-            return 1
+    fi
+
+    log_info "Début de la sauvegarde de la base de données: $DB_NAME"
+
+    local -a dump_cmd=(pg_dump --host "$DB_HOST" --port "$DB_PORT" -U "$DB_USER" "$DB_NAME" -f "$BACKUP_PATH" --format=t --blobs --create --clean --if-exists)
+
+    log_debug "Commande de dump: ${dump_cmd[*]}"
+
+    if "${dump_cmd[@]}" 2>>"$LOG_FILE"; then
+        log_info "Dump de la base de données réussi"
+        if [[ "$VERIFY_BACKUP" == "true" ]]; then
+            verify_backup_integrity
         fi
+        return 0
+    else
+        log_error "Échec du dump de la base de données"
+        return 1
+    fi
+}
+
+# Effectuer une sauvegarde complète du cluster avec pg_basebackup
+perform_cluster_backup() {
+    if [[ "$TEST_MODE" == "true" ]]; then
+        log_info "MODE TEST: Création d'un fichier dummy de ${TEST_DUMMY_SIZE_MB}MB pour le cluster"
+        create_dummy_backup
+        return $?
+    fi
+
+    log_info "Début de la sauvegarde complète du cluster via pg_basebackup"
+
+    # pg_basebackup écrit un tar si -F t et -D - ; on redirige la sortie vers le fichier de backup
+    local -a basebackup_cmd=(pg_basebackup -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -D - -F t --wal-method=stream --checkpoint=fast)
+
+    log_debug "Commande pg_basebackup: ${basebackup_cmd[*]} > $BACKUP_PATH"
+
+    if "${basebackup_cmd[@]}" >"$BACKUP_PATH" 2>>"$LOG_FILE"; then
+        log_info "pg_basebackup terminé avec succès"
+        if [[ "$VERIFY_BACKUP" == "true" ]]; then
+            verify_backup_integrity
+        fi
+        return 0
+    else
+        log_error "Échec de pg_basebackup"
+        return 1
     fi
 }
 
 create_dummy_backup() {
     log_debug "Création d'un fichier dummy de test"
     
-    # Calcul de la taille en bytes (MB * 1024 * 1024)
     local size_bytes=$((TEST_DUMMY_SIZE_MB * 1024 * 1024))
     
-    # Création du fichier dummy avec dd
     if dd if=/dev/urandom of="$BACKUP_PATH" bs=1M count="$TEST_DUMMY_SIZE_MB" 2>>"$LOG_FILE"; then
         log_info "Fichier dummy créé: $(basename "$BACKUP_PATH") (${TEST_DUMMY_SIZE_MB}MB)"
         
-        # Ajout d'un en-tête pour identifier le fichier comme étant un test
         {
             echo "# PostgreSQL Backup Test File"
             echo "# Created: $(date)"
@@ -515,7 +466,6 @@ create_dummy_backup() {
             echo "# Original data follows..."
         } > /tmp/test_header
         
-        # Concaténation de l'en-tête avec le fichier dummy
         cat /tmp/test_header "$BACKUP_PATH" > "${BACKUP_PATH}.tmp" && mv "${BACKUP_PATH}.tmp" "$BACKUP_PATH"
         rm -f /tmp/test_header
         
@@ -535,7 +485,7 @@ verify_dummy_backup() {
     
     if [[ -f "$BACKUP_PATH" && -s "$BACKUP_PATH" ]]; then
         local file_size=$(stat -c%s "$BACKUP_PATH" 2>/dev/null || stat -f%z "$BACKUP_PATH")
-        local expected_min_size=$((TEST_DUMMY_SIZE_MB * 1024 * 1024 / 2))  # Au moins 50% de la taille attendue
+        local expected_min_size=$((TEST_DUMMY_SIZE_MB * 1024 * 1024 / 2))
         
         if [[ $file_size -gt $expected_min_size ]]; then
             log_debug "Fichier dummy valide (taille: $file_size bytes)"
@@ -614,23 +564,86 @@ main() {
     log_info "=== Début de la sauvegarde PostgreSQL ==="
     log_info "Fichier de sauvegarde: $BACKUP_FILE"
     
-    # Publication de la découverte MQTT au début
     publish_mqtt_discovery
     
-    # Initialisation du statut
     BACKUP_STATUS="running"
     PBS_STATUS=$([ "${PBS_ENABLED:-false}" = "true" ] && echo "pending" || echo "disabled")
     PBS_OK="false"
     publish_metrics
     
-    # Étapes de la sauvegarde pour chaque base ciblée
     create_backup_directory
-
     local overall_success=true
+
+    # Si on demande une sauvegarde complète du cluster, faire un seul pg_basebackup
+    if [[ "${CLUSTER_BACKUP}" == "true" ]]; then
+        log_info "--- Sauvegarde complète du cluster (pg_basebackup) ---"
+
+        if [[ "${TEST_MODE:-false}" == "true" ]]; then
+            local test_suffix="${TEST_FILE_SUFFIX:-_test}"
+        else
+            local test_suffix=""
+        fi
+
+        BACKUP_FILE="${BACKUP_DATE}_cluster${test_suffix}${FILE_SUFFIX}"
+        BACKUP_PATH="${BACKUP_DIR}${BACKUP_FILE}"
+        COMPRESSED_PATH="${BACKUP_PATH}.gz"
+        BACKUP_FILE_COMPRESSED="${BACKUP_FILE}.gz"
+
+        if perform_cluster_backup; then
+            local pbs_successful=true
+            if pbs_is_enabled; then
+                if ! pbs_backup_file "$BACKUP_PATH"; then
+                    pbs_successful=false
+                fi
+            fi
+
+            if [[ "${PBS_ENABLED:-false}" == "true" ]]; then
+                PBS_STATUS=$([[ "$pbs_successful" == true ]] && echo "ok" || echo "failed")
+                PBS_OK=$([[ "$pbs_successful" == true ]] && echo "true" || echo "false")
+            else
+                PBS_STATUS="disabled"
+                PBS_OK="false"
+            fi
+
+            if ! compress_backup; then
+                BACKUP_STATUS="compression_failed"
+                ERROR_MESSAGE="Échec de la compression locale"
+                overall_success=false
+            else
+                cleanup_old_backups
+                if [[ "$pbs_successful" == true ]]; then
+                    BACKUP_STATUS="success"
+                    log_info "Sauvegarde cluster terminée avec succès"
+                else
+                    BACKUP_STATUS="failed"
+                    ERROR_MESSAGE="Échec de l'envoi PBS"
+                    log_error "Sauvegarde locale compressée OK mais envoi PBS en échec pour cluster"
+                    overall_success=false
+                fi
+            fi
+        else
+            BACKUP_STATUS="dump_failed"
+            ERROR_MESSAGE="Échec de pg_basebackup"
+            PBS_STATUS=$([ "${PBS_ENABLED:-false}" = "true" ] && echo "failed" || echo "disabled")
+            PBS_OK="false"
+            overall_success=false
+        fi
+
+        BACKUP_DURATION=$(($(date +%s) - START_TIME))
+        publish_metrics
+
+        if [[ "$overall_success" == true ]]; then
+            log_info "=== Sauvegarde cluster terminée avec succès ==="
+            return 0
+        else
+            log_error "=== Sauvegarde cluster échouée ==="
+            return 1
+        fi
+    fi
+
     for target_db in "${BACKUP_TARGETS[@]}"; do
         log_info "--- Sauvegarde de la base: ${target_db} ---"
 
-        # Préparer les variables spécifiques à la base
         DB_NAME="${target_db}"
         if [[ "${TEST_MODE:-false}" == "true" ]]; then
             local test_suffix="${TEST_FILE_SUFFIX:-_test}"
@@ -688,7 +701,6 @@ main() {
             overall_success=false
         fi
 
-        # Publier métriques pour cette base
         BACKUP_DURATION=$(($(date +%s) - START_TIME))
         publish_metrics
     done
@@ -702,7 +714,6 @@ main() {
         return 1
     fi
     
-    # Calcul de la durée finale
     BACKUP_DURATION=$(($(date +%s) - START_TIME))
     
     log_info "Durée totale: ${BACKUP_DURATION}s"
@@ -717,14 +728,18 @@ main() {
 check_dependencies() {
     local missing_deps=()
     
-    # Vérification des outils requis
     for tool in pg_dump bc; do
         if ! command -v "$tool" &> /dev/null; then
             missing_deps+=("$tool")
         fi
     done
+
+    if [[ "${CLUSTER_BACKUP}" == "true" ]]; then
+        if ! command -v pg_basebackup &> /dev/null; then
+            missing_deps+=("postgresql-base")
+        fi
+    fi
     
-    # Vérification des outils optionnels
     if [[ "$MQTT_ENABLED" == "true" ]] && ! command -v mosquitto_pub &> /dev/null; then
         missing_deps+=("mosquitto-clients")
     fi
@@ -761,14 +776,22 @@ check_config() {
 # POINT D'ENTRÉE
 # ============================================================================
 
-# Vérifications initiales
 check_dependencies
 check_config
 
-# Création du fichier de log si nécessaire
 touch "$LOG_FILE"
 
-# Exécution principale
+if [[ "${MODE}" == "check" ]]; then
+    log_info "MODE=check: exécution de test_pbs_connection.sh"
+    "${SCRIPT_DIR}/test_pbs_connection.sh" "$CONFIG_FILE"
+    exit $?
+fi
+
+if [[ "${MODE}" == "dummy-run" ]]; then
+    log_info "MODE=dummy-run: TEST_MODE activé"
+    TEST_MODE="true"
+fi
+
 main
 
 log_info "=== Script terminé ==="
