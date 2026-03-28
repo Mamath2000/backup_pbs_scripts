@@ -1,0 +1,68 @@
+#!/bin/bash
+# Exemple de configuration pour `backup_postgres.sh`
+# Copier ce fichier en `backup_postgres.conf` et adapter les valeurs.
+
+#########################
+# Général / Logging
+#########################
+BACKUP_DIR="/var/backups/postgres/"         # Doit se terminer par /
+FILE_SUFFIX=".tar"                          # suffixe de fichier de dump (archive tar, pg_dump -F t)
+LOG_FILE="/var/log/postgres_backup.log"
+# LOG_LEVEL="INFO"                          # DEBUG|INFO|WARN|ERROR (optionnel)
+# DAYS_TO_KEEP=30                           # conservation en jours (optionnel)
+
+#########################
+## Base principale (adapter obligatoirement)
+#########################
+DB_NAME="postgres"
+DB_HOST="localhost"
+DB_PORT=5432
+DB_USER="postgres"
+# DB_PASSWORD="changeme"                    # (optionnel) mettre en variable d'environnement si possible
+
+#########################
+## Sauvegarde additionnelle (ltss)
+#########################
+# Pour activer la sauvegarde de la base 'ltss', décommenter la ligne suivante
+# BACKUP_LTSS=true
+# LTSS_DB_NAME="ltss"                       # nom de la base ltss (optionnel)
+
+#########################
+## Mode test
+#########################
+# TEST_MODE=false                           # true pour créer des fichiers dummy (optionnel)
+# TEST_DUMMY_SIZE_MB=10                     # taille du dummy en MB (optionnel)
+# TEST_FILE_SUFFIX="_test"                  # suffixe ajouté aux dumps en TEST_MODE (optionnel)
+# VERIFY_BACKUP=true                        # vérifier l'existence / taille du fichier (optionnel)
+
+#########################
+## Compression
+#########################
+# COMPRESSION_LEVEL=6                       # niveau gzip (1-9) (optionnel)
+# COMPRESSION_ENABLED=true                  # activer la compression (true|false) (optionnel)
+
+#########################
+## MQTT / Home Assistant (optionnel)
+#########################
+# MQTT_ENABLED=false
+# MQTT_HOST="mqtt.example.local"
+# MQTT_PORT=1883
+# MQTT_USER=""
+# MQTT_PASSWORD=""
+# MQTT_DEVICE_TOPIC="homeassistant/sensor/postgres_backup/config"
+# MQTT_STATE_TOPIC="homeassistant/sensor/postgres_backup/state"
+
+#########################
+## PBS / Proxmox Backup Server
+#########################
+PBS_ENABLED=true                            # activer l'envoi vers PBS
+PBS_REPOSITORY="backup@pbs.lan"           # ex: user@host (ne pas inclure ":datastore")
+PBS_DATASTORE="ds1"                        # <REQUIRED> datastore PBS (ex: ds1)
+PBS_BACKUP_ID="postgres"
+PBS_BACKUP_ID_LTSS="postgres-ltss"        # ID spécifique pour la base 'ltss' (optionnel)
+PBS_NAMESPACE=""
+PBS_CLIENT="proxmox-backup-client"
+PBS_PASSWORD=""
+PBS_FINGERPRINT=""
+PBS_ARCHIVE_PREFIX="postgres"
+PBS_METADATA_ARCHIVE_NAME="metadata.pxar"
