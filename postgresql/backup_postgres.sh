@@ -327,17 +327,22 @@ pbs_run_backup() {
         log_debug "DEBUG PBS docker mounts: ${docker_mounts[*]}"
         log_debug "DEBUG PBS docker args: ${pbs_args[*]}"
 
-        if docker run --rm --network host \
+        local docker_out
+        if docker_out=$(docker run --rm --network host \
             "${docker_mounts[@]}" \
             -e "PBS_REPOSITORY=${repo_arg}" \
             ${PBS_PASSWORD:+-e "PBS_PASSWORD=${PBS_PASSWORD}"} \
             ${PBS_PASSWORD_FILE:+-e "PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}"} \
             ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
             "$pbs_docker_image" \
-            "${pbs_args[@]}" >>"$LOG_FILE" 2>&1; then
+            "${pbs_args[@]}" 2>&1); then
+            echo "$docker_out" >>"$LOG_FILE" 2>&1
             return 0
+        else
+            log_error "PBS docker client failed: $docker_out"
+            echo "$docker_out" >>"$LOG_FILE" 2>&1
+            return 1
         fi
-        return 1
     else
         # Mode natif (apt)
         local -a pbs_args=("${pbs_client}" backup)
@@ -353,10 +358,15 @@ pbs_run_backup() {
         log_debug "DEBUG PBS env: ${env_args[*]}"
         log_debug "DEBUG PBS cmd: ${pbs_args[*]}"
 
-        if env "${env_args[@]}" "${pbs_args[@]}" >>"$LOG_FILE" 2>&1; then
+        local apt_out
+        if apt_out=$(env "${env_args[@]}" "${pbs_args[@]}" 2>&1); then
+            echo "$apt_out" >>"$LOG_FILE" 2>&1
             return 0
+        else
+            log_error "PBS client failed: $apt_out"
+            echo "$apt_out" >>"$LOG_FILE" 2>&1
+            return 1
         fi
-        return 1
     fi
 }
 
@@ -396,8 +406,6 @@ EOF
         fi
     fi
 
-    local archive_prefix="${PBS_ARCHIVE_PREFIX:-postgres}"
-    local archive_name="${archive_prefix}.pxar"
     local meta_archive_name="${PBS_METADATA_ARCHIVE_NAME:-metadata.pxar}"
 
     mkdir -p "$staging_dir/meta" "$staging_dir/data"
@@ -421,6 +429,21 @@ EOF
     fi
 
     PBS_BACKUP_ID="$pbs_backup_id"
+
+    # Construire le nom d'archive pxar.
+    # Objectif: namespace/backup_id/<db_name>/archive.pxar pour que la DB apparaisse directement sous le namespace.
+    local configured_prefix="${PBS_BACKUP_ID:-${PBS_ARCHIVE_PREFIX:-postgres}}"
+    # Sanitize prefix and db name separately
+    local safe_prefix
+    safe_prefix=$(printf '%s' "$configured_prefix" | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]\+/-/g' | sed 's/[^a-z0-9._-]/-/g')
+    if [[ -n "${DB_NAME:-}" ]]; then
+        local safe_db
+        safe_db=$(printf '%s' "${DB_NAME}" | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]\+/-/g' | sed 's/[^a-z0-9._-]/-/g')
+        # Ne pas utiliser de slash dans l'archive-name (PBS exige alnum, - et _)
+        local archive_name="${safe_prefix}_${safe_db}.pxar"
+    else
+        local archive_name="${safe_prefix}.pxar"
+    fi
 
     local meta_spec="${meta_archive_name}:${staging_dir}/meta"
     local data_spec="${archive_name}:${staging_dir}/data"
@@ -663,7 +686,7 @@ main() {
             # Indiquer que c'est un backup cluster pour les métadonnées/metrics
             METADATA_DB="cluster"
 
-            BACKUP_FILE="${BACKUP_DATE}_cluster${test_suffix}${FILE_SUFFIX}"
+            BACKUP_FILE="${BACKUP_DATE}_${PBS_BACKUP_ID}_cluster${test_suffix}${FILE_SUFFIX}"
             BACKUP_PATH="${BACKUP_DIR}${BACKUP_FILE}"
             COMPRESSED_PATH="${BACKUP_PATH}.gz"
             BACKUP_FILE_COMPRESSED="${BACKUP_FILE}.gz"
@@ -716,7 +739,7 @@ main() {
             DB_NAME="$target_db"
             METADATA_DB="$DB_NAME"
 
-                BACKUP_FILE="${BACKUP_DATE}_${DB_NAME}${test_suffix}${FILE_SUFFIX}"
+                BACKUP_FILE="${BACKUP_DATE}_${DB_NAME}_${PBS_BACKUP_ID}${test_suffix}${FILE_SUFFIX}"
                 BACKUP_PATH="${BACKUP_DIR}${BACKUP_FILE}"
                 COMPRESSED_PATH="${BACKUP_PATH}.gz"
                 BACKUP_FILE_COMPRESSED="${BACKUP_FILE}.gz"
