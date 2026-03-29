@@ -17,7 +17,6 @@ BACKUP_MODE="cluster"              # (optionnel, défaut: cluster)
 
 # ===================== RÉPERTOIRES & FICHIERS ===============
 BACKUP_DIR="/var/backups/postgres/" # Répertoire de sauvegarde (obligatoire)
-FILE_SUFFIX=".tar"                  # Suffixe des fichiers de backup (défaut: .tar)
 DAYS_TO_KEEP=5                       # Nombre de jours à conserver (défaut: 5)
 
 # ===================== LOGGING ==============================
@@ -34,22 +33,17 @@ VERIFY_BACKUP=true                   # Vérifier l'intégrité (optionnel, défa
 # ===================== MODE TEST ============================
 TEST_MODE=false                      # true/false (optionnel, défaut: false)
 TEST_DUMMY_SIZE_MB=50                # Taille dummy en MB (optionnel, défaut: 50)
-TEST_FILE_SUFFIX="_test"            # Suffixe en mode test (optionnel, défaut: _test)
 
 # ===================== PBS / PROXMOX BACKUP SERVER =========
 PBS_ENABLED=true                     # true/false (optionnel, défaut: true)
 PBS_REPOSITORY="backup@pbs.lan"     # user@host (obligatoire si PBS_ENABLED)
 PBS_DATASTORE="ds1"                 # Datastore PBS (obligatoire si PBS_ENABLED)
-PBS_BACKUP_ID="postgres"            # Identifiant logique PBS (optionnel, défaut: postgres)
 PBS_NAMESPACE=""                    # Namespace PBS (optionnel)
 PBS_CLIENT_MODE="apt"               # apt|docker (optionnel, défaut: apt)
 PBS_CLIENT="proxmox-backup-client"  # Binaire PBS (optionnel, utilisé si mode apt)
 PBS_DOCKER_IMAGE="proxmox-pbs-client:latest" # Image docker PBS (optionnel, utilisé si mode docker)
-PBS_PASSWORD=""                     # Mot de passe PBS (optionnel)
-PBS_PASSWORD_FILE=""                # Chemin vers fichier contenant le mot de passe (optionnel)
+PBS_PASSWORD=""                     # Mot de passe PBS 
 PBS_FINGERPRINT=""                  # Empreinte PBS (optionnel)
-PBS_ARCHIVE_PREFIX="postgres"       # Préfixe pxar (optionnel, défaut: postgres)
-PBS_METADATA_ARCHIVE_NAME="metadata.pxar" # Nom archive meta (optionnel, défaut: metadata.pxar)
 
 # ===================== MQTT / HOME ASSISTANT ================
 MQTT_ENABLED=false                   # true/false (optionnel, défaut: false)
@@ -57,10 +51,4 @@ MQTT_HOST=""                        # Hôte MQTT (optionnel, requis si MQTT_ENAB
 MQTT_PORT=1883                       # Port MQTT (optionnel, défaut: 1883)
 MQTT_USER=""                        # Utilisateur MQTT (optionnel)
 MQTT_PASSWORD=""                    # Mot de passe MQTT (optionnel)
-MQTT_DEVICE_TOPIC=""                # Topic config device (optionnel)
-MQTT_STATE_TOPIC=""                 # Topic état (optionnel)
-MQTT_CLIENT_ID="postgres_backup_script" # ID client MQTT (optionnel, défaut: postgres_backup_script)
-
-# ===================== AUTRES (NON UTILISÉS) ================
-# EMAIL_TO=""                       # (inutile, non utilisé)
-# SEND_EMAIL_ON_ERROR=false          # (inutile, non utilisé)
+MQTT_BASE_TOPIC="backup"            # Base topic pour l'état (optionnel, défaut: backup)

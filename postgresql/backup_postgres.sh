@@ -99,19 +99,15 @@ METADATA_DB=""
 START_TIME=$(date +%s)
 BACKUP_DATE=$(date +"%Y%m%d%H%M")
 
-# Suffixe à ajouter aux fichiers en mode test (modifiable dans la conf)
-TEST_FILE_SUFFIX="${TEST_FILE_SUFFIX:-_test}"
-
-# Détermination du nom de fichier initial (utilisé pour les métriques préalables)
-if [[ "${TEST_MODE:-false}" == "true" ]]; then
-    BACKUP_FILE="${BACKUP_DATE}${TEST_FILE_SUFFIX}${FILE_SUFFIX}"
-else
-    BACKUP_FILE="${BACKUP_DATE}${FILE_SUFFIX}"
-fi
-
-BACKUP_PATH="${BACKUP_DIR}${BACKUP_FILE}"
-COMPRESSED_PATH="${BACKUP_PATH}.gz"
-BACKUP_FILE_COMPRESSED="${BACKUP_FILE}.gz"
+# NOTE: suppression de FILE_SUFFIX global. Les fichiers sont nommés
+# avec la date + PBS_BACKUP_ID et extension '.tar' (ou '.tar.gz').
+# Les variables BACKUP_FILE / BACKUP_PATH seront initialisées avant
+# chaque dump (perdb/cluster) après calcul de PBS_BACKUP_ID.
+TEST_FILE_SUFFIX=""
+BACKUP_FILE=""
+BACKUP_PATH=""
+COMPRESSED_PATH=""
+BACKUP_FILE_COMPRESSED=""
 LOG_PREFIX="[$(date '+%Y-%m-%d %H:%M:%S')]"
 
 # Statistiques de la sauvegarde
@@ -137,8 +133,8 @@ else
     TARGETS_ARRAY=()
 fi
 
-# Assurer une valeur par défaut pour le suffixe de test si non fournie
-TEST_FILE_SUFFIX="${TEST_FILE_SUFFIX:-_test}"
+# TEST_FILE_SUFFIX retiré (géré via PBS_BACKUP_ID)
+TEST_FILE_SUFFIX=""
 
 # Activer/désactiver la compression (true|false)
 COMPRESSION_ENABLED="${COMPRESSION_ENABLED:-true}"
@@ -269,6 +265,30 @@ publish_metrics() {
 
 pbs_is_enabled() {
     [[ "${PBS_ENABLED:-false}" == "true" ]]
+}
+
+# Calcul du PBS_BACKUP_ID selon le mode et la base
+# - perdb: postgres_{hostname}_{dbname}
+# - cluster: postgres_{hostname}_full
+# - si TEST_MODE=true, préfixe 'test_' ajouté
+compute_pbs_backup_id() {
+    local mode="$1"
+    local dbname="${2:-}"
+    local host
+    host=$(hostname -s 2>/dev/null || hostname)
+    host=$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
+
+    if [[ "$mode" == "perdb" && -n "$dbname" ]]; then
+        local db
+        db=$(printf '%s' "$dbname" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
+        PBS_BACKUP_ID="${host}_${db}"
+    else
+        PBS_BACKUP_ID="${host}_full"
+    fi
+
+    if [[ "${TEST_MODE:-false}" == "true" ]]; then
+        PBS_BACKUP_ID="test_${PBS_BACKUP_ID}"
+    fi
 }
 
 pbs_run_backup() {
@@ -406,7 +426,8 @@ EOF
         fi
     fi
 
-    local meta_archive_name="${PBS_METADATA_ARCHIVE_NAME:-metadata.pxar}"
+    # metadata.pxar est fixé en dur
+    local meta_archive_name="metadata.pxar"
 
     mkdir -p "$staging_dir/meta" "$staging_dir/data"
     mv "$staging_dir/metadata.json" "$staging_dir/meta/metadata.json"
@@ -416,34 +437,8 @@ EOF
         rm -rf "$staging_dir" || true
         return 1
     }
-
-    # Utiliser l'ID PBS configuré si présent, sinon générer postgres-{db_name}
-    local old_pbs_backup_id="${PBS_BACKUP_ID:-}"
-    if [[ -n "${old_pbs_backup_id:-}" ]]; then
-        local pbs_backup_id="${old_pbs_backup_id}"
-    else
-        local db_for_id="${DB_NAME:-${METADATA_DB:-cluster}}"
-        local pbs_backup_id="postgres-${db_for_id}"
-        # Sanitize: lowercase, espaces -> '-', caractères non alphanumériques remplacés par '-'
-        pbs_backup_id=$(printf '%s' "$pbs_backup_id" | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]\+/-/g' | sed 's/[^a-z0-9._-]/-/g')
-    fi
-
-    PBS_BACKUP_ID="$pbs_backup_id"
-
-    # Construire le nom d'archive pxar.
-    # Objectif: namespace/backup_id/<db_name>/archive.pxar pour que la DB apparaisse directement sous le namespace.
-    local configured_prefix="${PBS_BACKUP_ID:-${PBS_ARCHIVE_PREFIX:-postgres}}"
-    # Sanitize prefix and db name separately
-    local safe_prefix
-    safe_prefix=$(printf '%s' "$configured_prefix" | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]\+/-/g' | sed 's/[^a-z0-9._-]/-/g')
-    if [[ -n "${DB_NAME:-}" ]]; then
-        local safe_db
-        safe_db=$(printf '%s' "${DB_NAME}" | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]\+/-/g' | sed 's/[^a-z0-9._-]/-/g')
-        # Ne pas utiliser de slash dans l'archive-name (PBS exige alnum, - et _)
-        local archive_name="${safe_prefix}_${safe_db}.pxar"
-    else
-        local archive_name="${safe_prefix}.pxar"
-    fi
+    # L'archive pxar porte le nom du PBS_BACKUP_ID
+    local archive_name="${PBS_BACKUP_ID}.pxar"
 
     local meta_spec="${meta_archive_name}:${staging_dir}/meta"
     local data_spec="${archive_name}:${staging_dir}/data"
@@ -454,14 +449,13 @@ EOF
         log_info "Envoi PBS réussi pour ${BACKUP_FILE} (backup_id=${PBS_BACKUP_ID})"
         PBS_OK="true"
         PBS_STATUS="ok"
-        PBS_BACKUP_ID="${old_pbs_backup_id}"
         rm -rf "$staging_dir" || true
         return 0
     else
         log_error "Échec de l'envoi PBS"
         PBS_OK="false"
         PBS_STATUS="failed"
-        PBS_BACKUP_ID="${old_pbs_backup_id}"
+        
         rm -rf "$staging_dir" || true
         return 1
     fi
@@ -653,7 +647,7 @@ cleanup_old_backups() {
         log_debug "Suppression de l'ancienne sauvegarde: $(basename "$file")"
         rm -f "$file"
         deleted_count=$((deleted_count + 1))
-    done < <(find "$BACKUP_DIR" -maxdepth 1 -mtime +$DAYS_TO_KEEP \( -name "*${FILE_SUFFIX}.gz" -o -name "*${FILE_SUFFIX}" \) -print0)
+    done < <(find "$BACKUP_DIR" -maxdepth 1 -mtime +$DAYS_TO_KEEP \( -name "*.tar.gz" -o -name "*.tar" \) -print0)
     log_info "Suppression de $deleted_count ancienne(s) sauvegarde(s)"
 }
 
@@ -673,11 +667,7 @@ main() {
     create_backup_directory
     local overall_success=true
 
-    if [[ "${TEST_MODE:-false}" == "true" ]]; then
-        test_suffix="${TEST_FILE_SUFFIX:-_test}"
-    else
-        test_suffix=""
-    fi
+    # PBS_BACKUP_ID is calculé par compute_pbs_backup_id() et inclut le préfixe 'test_' si nécessaire
 
     case "${BACKUP_MODE:-cluster}" in
         cluster)
@@ -685,8 +675,9 @@ main() {
 
             # Indiquer que c'est un backup cluster pour les métadonnées/metrics
             METADATA_DB="cluster"
-
-            BACKUP_FILE="${BACKUP_DATE}_${PBS_BACKUP_ID}_cluster${test_suffix}${FILE_SUFFIX}"
+            # Calculer l'ID PBS et nommer le fichier: date + PBS_BACKUP_ID + .tar
+            compute_pbs_backup_id "cluster"
+            BACKUP_FILE="${BACKUP_DATE}_${PBS_BACKUP_ID}.tar"
             BACKUP_PATH="${BACKUP_DIR}${BACKUP_FILE}"
             COMPRESSED_PATH="${BACKUP_PATH}.gz"
             BACKUP_FILE_COMPRESSED="${BACKUP_FILE}.gz"
@@ -738,8 +729,9 @@ main() {
                 log_info "Traitement de la base: $target_db"
             DB_NAME="$target_db"
             METADATA_DB="$DB_NAME"
-
-                BACKUP_FILE="${BACKUP_DATE}_${DB_NAME}_${PBS_BACKUP_ID}${test_suffix}${FILE_SUFFIX}"
+            # Calculer l'ID PBS pour cette base
+                compute_pbs_backup_id "perdb" "$DB_NAME"
+                BACKUP_FILE="${BACKUP_DATE}_${PBS_BACKUP_ID}.tar"
                 BACKUP_PATH="${BACKUP_DIR}${BACKUP_FILE}"
                 COMPRESSED_PATH="${BACKUP_PATH}.gz"
                 BACKUP_FILE_COMPRESSED="${BACKUP_FILE}.gz"
