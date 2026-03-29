@@ -20,11 +20,20 @@ LOG_FILE="/var/log/postgres_backup.log"
 #########################
 ## Base principale (adapter obligatoirement)
 #########################
-DB_NAME="postgres"
 DB_HOST="localhost"
 DB_PORT=5432
 DB_USER="postgres"
-# DB_PASSWORD="changeme"                    # (optionnel) mettre en variable d'environnement si possible
+
+# Mode de sauvegarde (choisir une seule option):
+# - BACKUP_MODE="cluster"  -> sauvegarde physique complète via pg_basebackup
+# - BACKUP_MODE="perdb"    -> sauvegarde par base via pg_dump (possibilité de lister plusieurs bases)
+# Exemples:
+# BACKUP_MODE="cluster"
+# BACKUP_MODE="perdb"
+
+# Si BACKUP_MODE=perdb vous pouvez définir une liste de bases (CSV) :
+# BACKUP_TARGETS="postgres,ltss,otherdb"
+# Si non défini, la base utilisée sera DB_NAME et (optionnellement) LTSS via BACKUP_LTSS.
 
 #########################
 ## Sauvegarde additionnelle (ltss)
