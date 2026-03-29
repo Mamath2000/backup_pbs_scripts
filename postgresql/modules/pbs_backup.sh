@@ -27,7 +27,7 @@ pbs::compute_backup_id() {
     fi
 }
 
-pbs::run_backup() {
+pbs::exec_backup() {
     local backup_id="${PBS_BACKUP_ID:-postgres}"
     local backup_type="host"
     local pbs_namespace="${PBS_NAMESPACE:-}"
@@ -52,7 +52,13 @@ pbs::run_backup() {
     local -a env_args=("PBS_REPOSITORY=${repo_arg}")
     [[ -n "${PBS_PASSWORD:-}" ]] && env_args+=("PBS_PASSWORD=${PBS_PASSWORD}")
     [[ -n "${PBS_FINGERPRINT:-}" ]] && env_args+=("PBS_FINGERPRINT=${PBS_FINGERPRINT}")
-
+    # Masquer les valeurs sensibles pour les logs (PBS_PASSWORD)
+    local -a masked_env_args=("${env_args[@]}")
+    for i in "${!masked_env_args[@]}"; do
+        if [[ "${masked_env_args[$i]}" == PBS_PASSWORD=* ]]; then
+            masked_env_args[$i]="PBS_PASSWORD=***"
+        fi
+    done
     if [[ "$pbs_client_mode" == "docker" ]]; then
         # Docker: on monte les dossiers à sauvegarder dans /sourceX
         local -a docker_mounts=()
@@ -82,18 +88,21 @@ pbs::run_backup() {
         logs::debug "DEBUG PBS docker args: ${pbs_args[*]}"
 
         local docker_out
-            if docker_out=$(docker run --rm --network host \
+        if docker_out=$(docker run --rm --network host \
             "${docker_mounts[@]}" \
             -e "PBS_REPOSITORY=${repo_arg}" \
             ${PBS_PASSWORD:+-e "PBS_PASSWORD=${PBS_PASSWORD}"} \
             ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
             "$pbs_docker_image" \
             "${pbs_args[@]}" 2>&1); then
-            echo "$docker_out" >>"$LOG_FILE" 2>&1
+            # Redact potential secrets before writing to log
+            printf '%s\n' "$docker_out" | sed -E 's/(PBS_PASSWORD=)[^[:space:]]+/\1***/g' >>"$LOG_FILE" 2>&1
             return 0
         else
-            logs::error "PBS docker client failed: $docker_out"
-            echo "$docker_out" >>"$LOG_FILE" 2>&1
+            local docker_redacted
+            docker_redacted=$(printf '%s' "$docker_out" | sed -E 's/(PBS_PASSWORD=)[^[:space:]]+/\1***/g')
+            logs::error "PBS docker client failed: $docker_redacted"
+            printf '%s\n' "$docker_redacted" >>"$LOG_FILE" 2>&1
             return 1
         fi
     else
@@ -108,16 +117,19 @@ pbs::run_backup() {
         fi
         pbs_args+=(--repository "$repo_arg")
 
-        logs::debug "DEBUG PBS env: ${env_args[*]}"
+        logs::debug "DEBUG PBS env: ${masked_env_args[*]}"
         logs::debug "DEBUG PBS cmd: ${pbs_args[*]}"
 
         local apt_out
         if apt_out=$(env "${env_args[@]}" "${pbs_args[@]}" 2>&1); then
-            echo "$apt_out" >>"$LOG_FILE" 2>&1
+            # Redact secrets before logging
+            printf '%s\n' "$apt_out" | sed -E 's/(PBS_PASSWORD=)[^[:space:]]+/\1***/g' >>"$LOG_FILE" 2>&1
             return 0
         else
-            logs::error "PBS client failed: $apt_out"
-            echo "$apt_out" >>"$LOG_FILE" 2>&1
+            local apt_redacted
+            apt_redacted=$(printf '%s' "$apt_out" | sed -E 's/(PBS_PASSWORD=)[^[:space:]]+/\1***/g')
+            logs::error "PBS client failed: $apt_redacted"
+            printf '%s\n' "$apt_redacted" >>"$LOG_FILE" 2>&1
             return 1
         fi
     fi
@@ -138,6 +150,9 @@ pbs::backup_file() {
 
     local staging_dir
     staging_dir=$(mktemp -d -p "${BACKUP_DIR%/}" ".pbs-staging.${BACKUP_DATE}.XXXXXX")
+    # Trap local pour garantir le nettoyage du staging en cas d'interruption
+    # Ne pas nettoyer le verrou ici — le trap global gère lock::cleanup et exit
+    trap 'rm -rf "$staging_dir" || true' INT TERM EXIT
 
     cat >"$staging_dir/metadata.json" <<EOF
 {
@@ -173,18 +188,42 @@ EOF
 
     logs::info "Préparation PBS: meta_spec='${meta_spec}', data_spec='${data_spec}', backup_id='${PBS_BACKUP_ID}'"
 
-    if pbs::run_backup "$meta_spec" "$data_spec"; then
+    if pbs::exec_backup "$meta_spec" "$data_spec"; then
         logs::info "Envoi PBS réussi pour ${BACKUP_FILE} (backup_id=${PBS_BACKUP_ID})"
         PBS_OK="true"
         PBS_STATUS="ok"
         rm -rf "$staging_dir" || true
+        # Restaurer le trap global de nettoyage de verrou
+        trap 'lock::cleanup "$LOCK_FILE"; exit' INT TERM EXIT
         return 0
     else
         logs::error "Échec de l'envoi PBS"
         PBS_OK="false"
         PBS_STATUS="failed"
-        
         rm -rf "$staging_dir" || true
+        # Restaurer le trap global de nettoyage de verrou
+        trap 'lock::cleanup "$LOCK_FILE"; exit' INT TERM EXIT
         return 1
     fi
 }
+
+pbs::run_backup() {
+    local path="$1"
+
+    if ! pbs::is_enabled; then
+        PBS_STATUS="disabled"
+        PBS_OK="false"
+        return 0
+    fi
+
+    if pbs::backup_file "$path"; then
+        PBS_STATUS="ok"
+        PBS_OK="true"
+        return 0
+    else
+        PBS_STATUS="failed"
+        PBS_OK="false"
+        return 1
+    fi
+}
+

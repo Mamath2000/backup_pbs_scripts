@@ -17,7 +17,11 @@ tools::check_dependencies() {
             missing_deps+=("postgresql-client (pg_dump)")
         fi
     fi
-    
+
+    if ! command -v jq >/dev/null 2>&1; then
+        missing_deps+=("jq")
+    fi
+
     if [[ "$MQTT_ENABLED" == "true" ]] && ! command -v mosquitto_pub &> /dev/null; then
         missing_deps+=("mosquitto-clients")
     fi
@@ -32,6 +36,8 @@ tools::check_dependencies() {
         logs::error "Dépendances manquantes: ${missing_deps[*]}"
         exit 1
     fi
+
+
 }
 
 tools::check_config() {

@@ -23,6 +23,22 @@ logs::init() {
     mkdir -p "$(dirname "$LOG_FILE")"
 
     touch "$LOG_FILE"
+    # Assurer permissions restreintes
+    chmod 600 "$LOG_FILE" 2>/dev/null || true
+
+    # Rotation basique par taille (LOG_MAX_SIZE_MB par défaut 10)
+    local max_mb="${LOG_MAX_SIZE_MB:-10}"
+    local max_bytes=$((max_mb * 1024 * 1024))
+    local filesize
+    filesize=$(stat -c%s "$LOG_FILE" 2>/dev/null || stat -f%z "$LOG_FILE" 2>/dev/null || echo 0)
+    if [[ $filesize -gt $max_bytes ]]; then
+        local rotname="${LOG_FILE}.$(date +%Y%m%d%H%M%S)"
+        mv "$LOG_FILE" "$rotname" || true
+        gzip -9 "$rotname" || true
+        touch "$LOG_FILE"
+        chmod 600 "$LOG_FILE" 2>/dev/null || true
+    fi
+
     logs::info "=== Initialisation du logging ==="
     logs::debug "Fichier de log: $LOG_FILE"
 }

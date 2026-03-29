@@ -1,3 +1,4 @@
+#!/bin/bash
 
 backup::create_directory() {
     if [[ ! -d "$BACKUP_DIR" ]]; then
@@ -6,14 +7,26 @@ backup::create_directory() {
     fi
 }
 
+backup::prepare_paths() {
+    BACKUP_FILE="${BACKUP_DATE}_${PBS_BACKUP_ID}.tar"
+    BACKUP_PATH="${BACKUP_DIR}${BACKUP_FILE}"
+    COMPRESSED_PATH="${BACKUP_PATH}.gz"
+    BACKUP_FILE_COMPRESSED="${BACKUP_FILE}.gz"
+}
+
 backup::perform_database_dump() {
-    if [[ "$TEST_MODE" == "true" ]]; then
+    local db_arg="${1:-}"
+    if [[ -n "$db_arg" ]]; then
+        DB_NAME="$db_arg"
+    fi
+
+    if [[ "${TEST_MODE:-false}" == "true" ]]; then
         logs::info "MODE TEST: Création d'un fichier dummy de ${TEST_DUMMY_SIZE_MB}MB"
         backup::create_dummy
         return $?
     fi
 
-    logs::info "Début de la sauvegarde de la base de données: $DB_NAME"
+    logs::info "Début de la sauvegarde de la base de données: ${DB_NAME}"
 
     local -a dump_cmd=(pg_dump --host "$DB_HOST" --port "$DB_PORT" -U "$DB_USER" "$DB_NAME" -f "$BACKUP_PATH" --format=t --blobs --create --clean --if-exists)
 
@@ -21,7 +34,7 @@ backup::perform_database_dump() {
 
     if "${dump_cmd[@]}" 2>>"$LOG_FILE"; then
         logs::info "Dump de la base de données réussi"
-        if [[ "$VERIFY_BACKUP" == "true" ]]; then
+        if [[ "${VERIFY_BACKUP:-false}" == "true" ]]; then
             backup::verify_integrity
         fi
         return 0
@@ -33,16 +46,13 @@ backup::perform_database_dump() {
 
 # Effectuer une sauvegarde complète du cluster avec pg_basebackup
 backup::perform_cluster_dump() {
-    if [[ "$TEST_MODE" == "true" ]]; then
+    if [[ "${TEST_MODE:-false}" == "true" ]]; then
         logs::info "MODE TEST: Création d'un fichier dummy de ${TEST_DUMMY_SIZE_MB}MB pour le cluster"
         backup::create_dummy
         return $?
     fi
 
     logs::info "Début de la sauvegarde complète du cluster via pg_basebackup"
-    # pg_basebackup ne peut pas envoyer les WAL vers stdout en mode tar.
-    # Nous écrivons le backup dans un répertoire temporaire puis créons
-    # une archive tar unique à partir de ce répertoire.
 
     local tmpdir
     tmpdir=$(mktemp -d -p "${BACKUP_DIR%/}" "pgbase.XXXXXX") || {
@@ -60,12 +70,11 @@ backup::perform_cluster_dump() {
         return 1
     fi
 
-    # Créer une archive tar à partir du répertoire temporaire
     logs::debug "Création de l'archive tar: $BACKUP_PATH"
     if tar -C "$tmpdir" -cf "$BACKUP_PATH" . 2>>"$LOG_FILE"; then
         logs::info "Archive créée: $BACKUP_PATH"
         rm -rf "$tmpdir" || true
-        if [[ "$VERIFY_BACKUP" == "true" ]]; then
+        if [[ "${VERIFY_BACKUP:-false}" == "true" ]]; then
             backup::verify_integrity
         fi
         return 0
@@ -78,12 +87,12 @@ backup::perform_cluster_dump() {
 
 backup::create_dummy() {
     logs::debug "Création d'un fichier dummy de test"
-    
-    # size_bytes variable removed (unused) to follow simplification rule
-    
+
     if dd if=/dev/urandom of="$BACKUP_PATH" bs=1M count="$TEST_DUMMY_SIZE_MB" 2>>"$LOG_FILE"; then
         logs::info "Fichier dummy créé: $(basename "$BACKUP_PATH") (${TEST_DUMMY_SIZE_MB}MB)"
-        
+
+        local header_file
+        header_file=$(mktemp -p "${BACKUP_DIR%/}" ".dummy_header.XXXXXX")
         {
             echo "# PostgreSQL Backup Test File"
             echo "# Created: $(date)"
@@ -93,15 +102,15 @@ backup::create_dummy() {
             echo "# Host: $DB_HOST"
             echo "# This is a dummy file for testing purposes"
             echo "# Original data follows..."
-        } > /tmp/test_header
-        
-        cat /tmp/test_header "$BACKUP_PATH" > "${BACKUP_PATH}.tmp" && mv "${BACKUP_PATH}.tmp" "$BACKUP_PATH"
-        rm -f /tmp/test_header
-        
-        if [[ "$VERIFY_BACKUP" == "true" ]]; then
+        } > "$header_file"
+
+        cat "$header_file" "$BACKUP_PATH" > "${BACKUP_PATH}.tmp" && mv "${BACKUP_PATH}.tmp" "$BACKUP_PATH"
+        rm -f "$header_file"
+
+        if [[ "${VERIFY_BACKUP:-false}" == "true" ]]; then
             backup::verify_dummy
         fi
-        
+
         return 0
     else
         logs::error "Échec de la création du fichier dummy"
@@ -111,11 +120,12 @@ backup::create_dummy() {
 
 backup::verify_dummy() {
     logs::debug "Vérification du fichier dummy"
-    
+
     if [[ -f "$BACKUP_PATH" && -s "$BACKUP_PATH" ]]; then
-        local file_size=$(stat -c%s "$BACKUP_PATH" 2>/dev/null || stat -f%z "$BACKUP_PATH")
+        local file_size
+        file_size=$(stat -c%s "$BACKUP_PATH" 2>/dev/null || stat -f%z "$BACKUP_PATH")
         local expected_min_size=$((TEST_DUMMY_SIZE_MB * 1024 * 1024 / 2))
-        
+
         if [[ $file_size -gt $expected_min_size ]]; then
             logs::debug "Fichier dummy valide (taille: $file_size bytes)"
             return 0
@@ -131,7 +141,7 @@ backup::verify_dummy() {
 
 backup::verify_integrity() {
     logs::debug "Vérification de l'intégrité de la sauvegarde"
-    
+
     if [[ -f "$BACKUP_PATH" && -s "$BACKUP_PATH" ]]; then
         logs::debug "Fichier de sauvegarde valide"
         return 0
@@ -175,7 +185,7 @@ backup::compress() {
 
 backup::cleanup_old() {
     logs::info "Nettoyage des anciennes sauvegardes (conservation: ${DAYS_TO_KEEP} jours)"
-    
+
     local deleted_count=0
     while IFS= read -r -d '' file; do
         logs::debug "Suppression de l'ancienne sauvegarde: $(basename "$file")"
