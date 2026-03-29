@@ -3,6 +3,11 @@
 mqtt::publish_discovery() {
     [[ "$MQTT_ENABLED" != "true" ]] && return 0
 
+    if ! command -v jq >/dev/null 2>&1; then
+        logs::error "jq requis pour construire le JSON MQTT (installer 'jq' pour activer la publication MQTT)"
+        return 0
+    fi
+
     local id="$PBS_BACKUP_ID"
     local name="$BACKUP_NAME"
     local device_topic="homeassistant/device/backup/${id}/config"
@@ -87,6 +92,11 @@ mqtt::publish_discovery() {
 
 mqtt::publish_metrics() {
     [[ "$MQTT_ENABLED" != "true" ]] && return 0
+
+    if ! command -v jq >/dev/null 2>&1; then
+        logs::error "jq requis pour construire le JSON MQTT (installer 'jq' pour activer la publication MQTT)"
+        return 0
+    fi
 
     local ts
     ts=$(date -Iseconds)
