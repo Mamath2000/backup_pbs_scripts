@@ -1,83 +1,66 @@
-#!/bin/bash
-# Exemple de configuration pour `backup_postgres.sh`
-# Copier ce fichier en `backup_postgres.conf` et adapter les valeurs.
-# NOTE: Ce script effectue désormais TOUJOURS une sauvegarde complète du
-# cluster PostgreSQL via `pg_basebackup`. 
+###############################################################
+# Exemple exhaustif de configuration pour backup_postgres.sh   #
+# Tous les paramètres possibles, valeur par défaut,            #
+# et indication optionnel/obligatoire.                         #
+# Renommez ce fichier en backup_postgres.conf pour l'utiliser. #
+###############################################################
 
-# Authentification: le script suppose l'utilisation de ~/.pgpass pour
-# l'authentification PostgreSQL. Ne placez PAS de mot de passe en clair dans
-# ce fichier de configuration.
+# ===================== BASE DE DONNÉES ======================
+DB_HOST="localhost"                # Hôte PostgreSQL (obligatoire)
+DB_PORT="5432"                     # Port PostgreSQL (obligatoire)
+DB_USER="postgres"                 # Utilisateur PostgreSQL (obligatoire)
+# NE PAS DÉFINIR DB_PASSWORD ici. Utilisez ~/.pgpass (PGPASSFILE) pour l'authentification PostgreSQL
 
-#########################
-# Général / Logging
-#########################
-BACKUP_DIR="/var/backups/postgres/"         # Doit se terminer par /
-FILE_SUFFIX=".tar"                          # suffixe de fichier de dump (archive tar, pg_dump -F t)
-LOG_FILE="/var/log/postgres_backup.log"
-# LOG_LEVEL="INFO"                          # DEBUG|INFO|WARN|ERROR (optionnel)
-# DAYS_TO_KEEP=30                           # conservation en jours (optionnel)
+# Mode de sauvegarde : "cluster" (par défaut) ou "perdb"
+BACKUP_MODE="cluster"              # (optionnel, défaut: cluster)
+# BACKUP_TARGETS=""                # CSV des bases à sauvegarder si perdb (optionnel)
 
-#########################
-## Base principale (adapter obligatoirement)
-#########################
-DB_HOST="localhost"
-DB_PORT=5432
-DB_USER="postgres"
+# ===================== RÉPERTOIRES & FICHIERS ===============
+BACKUP_DIR="/var/backups/postgres/" # Répertoire de sauvegarde (obligatoire)
+FILE_SUFFIX=".tar"                  # Suffixe des fichiers de backup (défaut: .tar)
+DAYS_TO_KEEP=5                       # Nombre de jours à conserver (défaut: 5)
 
-# Mode de sauvegarde (choisir une seule option):
-# - BACKUP_MODE="cluster"  -> sauvegarde physique complète via pg_basebackup
-# - BACKUP_MODE="perdb"    -> sauvegarde par base via pg_dump (possibilité de lister plusieurs bases)
-# Exemples:
-# BACKUP_MODE="cluster"
-# BACKUP_MODE="perdb"
+# ===================== LOGGING ==============================
+LOG_FILE="/var/log/postgres_backup.log" # Fichier de log (défaut)
+LOG_LEVEL="INFO"                    # DEBUG, INFO, WARN, ERROR (optionnel, défaut: INFO)
 
-# Si BACKUP_MODE=perdb vous pouvez définir une liste de bases (CSV) :
-# BACKUP_TARGETS="postgres,ltss,otherdb"
-# Si non défini, la base utilisée sera DB_NAME et (optionnellement) LTSS via BACKUP_LTSS.
+# ===================== COMPRESSION ==========================
+COMPRESSION_ENABLED=true             # true/false (optionnel, défaut: true)
+COMPRESSION_LEVEL=6                  # 1-9 (optionnel, défaut: 6)
 
-#########################
-## Sauvegarde additionnelle (ltss)
-#########################
-# Pour activer la sauvegarde de la base 'ltss', décommenter la ligne suivante
-# BACKUP_LTSS=true
-# LTSS_DB_NAME="ltss"                       # nom de la base ltss (optionnel)
+# ===================== VÉRIFICATION =========================
+VERIFY_BACKUP=true                   # Vérifier l'intégrité (optionnel, défaut: true)
 
-#########################
-## Mode test
-#########################
-# TEST_MODE=false                           # true pour créer des fichiers dummy (optionnel)
-# TEST_DUMMY_SIZE_MB=10                     # taille du dummy en MB (optionnel)
-# TEST_FILE_SUFFIX="_test"                  # suffixe ajouté aux dumps en TEST_MODE (optionnel)
-# VERIFY_BACKUP=true                        # vérifier l'existence / taille du fichier (optionnel)
+# ===================== MODE TEST ============================
+TEST_MODE=false                      # true/false (optionnel, défaut: false)
+TEST_DUMMY_SIZE_MB=50                # Taille dummy en MB (optionnel, défaut: 50)
+TEST_FILE_SUFFIX="_test"            # Suffixe en mode test (optionnel, défaut: _test)
 
-#########################
-## Compression
-#########################
-# COMPRESSION_LEVEL=6                       # niveau gzip (1-9) (optionnel)
-# COMPRESSION_ENABLED=true                  # activer la compression (true|false) (optionnel)
+# ===================== PBS / PROXMOX BACKUP SERVER =========
+PBS_ENABLED=true                     # true/false (optionnel, défaut: true)
+PBS_REPOSITORY="backup@pbs.lan"     # user@host (obligatoire si PBS_ENABLED)
+PBS_DATASTORE="ds1"                 # Datastore PBS (obligatoire si PBS_ENABLED)
+PBS_BACKUP_ID="postgres"            # Identifiant logique PBS (optionnel, défaut: postgres)
+PBS_NAMESPACE=""                    # Namespace PBS (optionnel)
+PBS_CLIENT_MODE="apt"               # apt|docker (optionnel, défaut: apt)
+PBS_CLIENT="proxmox-backup-client"  # Binaire PBS (optionnel, utilisé si mode apt)
+PBS_DOCKER_IMAGE="proxmox-pbs-client:latest" # Image docker PBS (optionnel, utilisé si mode docker)
+PBS_PASSWORD=""                     # Mot de passe PBS (optionnel)
+PBS_PASSWORD_FILE=""                # Chemin vers fichier contenant le mot de passe (optionnel)
+PBS_FINGERPRINT=""                  # Empreinte PBS (optionnel)
+PBS_ARCHIVE_PREFIX="postgres"       # Préfixe pxar (optionnel, défaut: postgres)
+PBS_METADATA_ARCHIVE_NAME="metadata.pxar" # Nom archive meta (optionnel, défaut: metadata.pxar)
 
-#########################
-## MQTT / Home Assistant (optionnel)
-#########################
-# MQTT_ENABLED=false
-# MQTT_HOST="mqtt.example.local"
-# MQTT_PORT=1883
-# MQTT_USER=""
-# MQTT_PASSWORD=""
-# MQTT_DEVICE_TOPIC="homeassistant/sensor/postgres_backup/config"
-# MQTT_STATE_TOPIC="homeassistant/sensor/postgres_backup/state"
+# ===================== MQTT / HOME ASSISTANT ================
+MQTT_ENABLED=false                   # true/false (optionnel, défaut: false)
+MQTT_HOST=""                        # Hôte MQTT (optionnel, requis si MQTT_ENABLED)
+MQTT_PORT=1883                       # Port MQTT (optionnel, défaut: 1883)
+MQTT_USER=""                        # Utilisateur MQTT (optionnel)
+MQTT_PASSWORD=""                    # Mot de passe MQTT (optionnel)
+MQTT_DEVICE_TOPIC=""                # Topic config device (optionnel)
+MQTT_STATE_TOPIC=""                 # Topic état (optionnel)
+MQTT_CLIENT_ID="postgres_backup_script" # ID client MQTT (optionnel, défaut: postgres_backup_script)
 
-#########################
-## PBS / Proxmox Backup Server
-#########################
-PBS_ENABLED=true                            # activer l'envoi vers PBS
-PBS_REPOSITORY="backup@pbs.lan"           # ex: user@host (ne pas inclure ":datastore")
-PBS_DATASTORE="ds1"                        # <REQUIRED> datastore PBS (ex: ds1)
-PBS_BACKUP_ID="postgres"
-PBS_BACKUP_ID_LTSS="postgres-ltss"        # ID spécifique pour la base 'ltss' (optionnel)
-PBS_NAMESPACE=""
-PBS_CLIENT="proxmox-backup-client"
-PBS_PASSWORD=""
-PBS_FINGERPRINT=""
-PBS_ARCHIVE_PREFIX="postgres"
-PBS_METADATA_ARCHIVE_NAME="metadata.pxar"
+# ===================== AUTRES (NON UTILISÉS) ================
+# EMAIL_TO=""                       # (inutile, non utilisé)
+# SEND_EMAIL_ON_ERROR=false          # (inutile, non utilisé)

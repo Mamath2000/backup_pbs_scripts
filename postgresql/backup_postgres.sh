@@ -79,6 +79,13 @@ source "$CONFIG_FILE"
 LOG_FILE="${LOG_FILE:-${SCRIPT_DIR}/logs/postgres_backup.log}"
 mkdir -p "$(dirname "$LOG_FILE")"
 
+# Interdire l'utilisation de DB_PASSWORD dans la configuration :
+# n'autoriser QUE l'authentification via ~/.pgpass (PGPASSFILE).
+if [[ -n "${DB_PASSWORD:-}" ]]; then
+    echo "ERREUR: DB_PASSWORD est défini dans la configuration. Le script n'autorise PAS les mots de passe en clair. Utilisez ~/.pgpass (PGPASSFILE) pour l'authentification PostgreSQL." >&2
+    [[ "${MODE}" != "check" ]] && rm -f "$LOCK_FILE" || true
+    exit 1
+fi
 # Authentification: on suppose l'utilisation de ~/.pgpass (le script n'expose pas de mot de passe)
 
 # Si mode dummy-run demandé via CLI, activer TEST_MODE
@@ -270,7 +277,8 @@ pbs_run_backup() {
     local backup_type="host"
     local pbs_namespace="${PBS_NAMESPACE:-}"
     local pbs_client="${PBS_CLIENT:-proxmox-backup-client}"
-
+    local pbs_client_mode="${PBS_CLIENT_MODE:-apt}"
+    local pbs_docker_image="${PBS_DOCKER_IMAGE:-proxmox-pbs-client:latest}"
 
     if [[ -z "${PBS_REPOSITORY:-}" ]]; then
         log_error "PBS_REPOSITORY non défini"
@@ -284,30 +292,72 @@ pbs_run_backup() {
         repo_arg="${repo_arg}:${PBS_DATASTORE}"
     fi
 
-    log_info "Envoi vers PBS: repository='${repo_arg}', backup_id='${backup_id}', type='${backup_type}'"
-
-    local -a pbs_args=("${pbs_client}" backup)
-    for spec in "${backup_specs[@]}"; do
-        pbs_args+=("$spec")
-    done
-    pbs_args+=(--backup-id "$backup_id" --backup-type "$backup_type")
-    if [[ -n "$pbs_namespace" ]]; then
-        pbs_args+=(--ns "$pbs_namespace")
-    fi
-    pbs_args+=(--repository "$repo_arg")
+    log_info "Envoi vers PBS: repository='${repo_arg}', backup_id='${backup_id}', type='${backup_type}', mode='${pbs_client_mode}'"
 
     local -a env_args=("PBS_REPOSITORY=${repo_arg}")
     [[ -n "${PBS_PASSWORD:-}" ]] && env_args+=("PBS_PASSWORD=${PBS_PASSWORD}")
+    [[ -n "${PBS_PASSWORD_FILE:-}" ]] && env_args+=("PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}")
     [[ -n "${PBS_FINGERPRINT:-}" ]] && env_args+=("PBS_FINGERPRINT=${PBS_FINGERPRINT}")
 
-    log_debug "DEBUG PBS env: ${env_args[*]}"
-    log_debug "DEBUG PBS cmd: ${pbs_args[*]}"
+    if [[ "$pbs_client_mode" == "docker" ]]; then
+        # Docker: on monte les dossiers à sauvegarder dans /sourceX
+        local -a docker_mounts=()
+        local -a docker_specs=()
+        local idx=0
+        for spec in "${backup_specs[@]}"; do
+            local archive_name="${spec%%:*}"
+            local path="${spec#*:}"
+            local mount_target="/source${idx}"
+            docker_mounts+=(--volume "${path}:${mount_target}:ro")
+            docker_specs+=("${archive_name}:${mount_target}")
+            ((idx++))
+        done
 
-    if env "${env_args[@]}" "${pbs_args[@]}" >>"$LOG_FILE" 2>&1; then
-        return 0
+        local -a pbs_args=(backup)
+        for spec in "${docker_specs[@]}"; do
+            pbs_args+=("$spec")
+        done
+        pbs_args+=(--backup-id "$backup_id" --backup-type "$backup_type")
+        if [[ -n "$pbs_namespace" ]]; then
+            pbs_args+=(--ns "$pbs_namespace")
+        fi
+        pbs_args+=(--repository "$repo_arg")
+
+        log_debug "DEBUG PBS docker image: $pbs_docker_image"
+        log_debug "DEBUG PBS docker mounts: ${docker_mounts[*]}"
+        log_debug "DEBUG PBS docker args: ${pbs_args[*]}"
+
+        if docker run --rm --network host \
+            "${docker_mounts[@]}" \
+            -e "PBS_REPOSITORY=${repo_arg}" \
+            ${PBS_PASSWORD:+-e "PBS_PASSWORD=${PBS_PASSWORD}"} \
+            ${PBS_PASSWORD_FILE:+-e "PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}"} \
+            ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
+            "$pbs_docker_image" \
+            "${pbs_args[@]}" >>"$LOG_FILE" 2>&1; then
+            return 0
+        fi
+        return 1
+    else
+        # Mode natif (apt)
+        local -a pbs_args=("${pbs_client}" backup)
+        for spec in "${backup_specs[@]}"; do
+            pbs_args+=("$spec")
+        done
+        pbs_args+=(--backup-id "$backup_id" --backup-type "$backup_type")
+        if [[ -n "$pbs_namespace" ]]; then
+            pbs_args+=(--ns "$pbs_namespace")
+        fi
+        pbs_args+=(--repository "$repo_arg")
+
+        log_debug "DEBUG PBS env: ${env_args[*]}"
+        log_debug "DEBUG PBS cmd: ${pbs_args[*]}"
+
+        if env "${env_args[@]}" "${pbs_args[@]}" >>"$LOG_FILE" 2>&1; then
+            return 0
+        fi
+        return 1
     fi
-
-    return 1
 }
 
 pbs_backup_file() {
