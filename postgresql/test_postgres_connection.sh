@@ -26,10 +26,13 @@ fi
 
 source "$CONFIG_FILE"
 
-if [[ -z "${DB_HOST:-}" || -z "${DB_PORT:-}" || -z "${DB_USER:-}" || -z "${DB_NAME:-}" ]]; then
-    echo "Variables DB_HOST/DB_PORT/DB_USER/DB_NAME manquantes dans la configuration"
+if [[ -z "${DB_HOST:-}" || -z "${DB_PORT:-}" || -z "${DB_USER:-}" || -z "${BACKUP_TARGETS:-}" ]]; then
+    echo "Variables DB_HOST/DB_PORT/DB_USER/BACKUP_TARGETS manquantes dans la configuration"
     exit 3
 fi
+
+IFS=',' read -r -a TARGETS_ARR <<< "$BACKUP_TARGETS"
+DB_NAME="${TARGETS_ARR[0]}"
 
 log_info "Test de connexion PostgreSQL: host='${DB_HOST}', port=${DB_PORT}, db='${DB_NAME}', user='${DB_USER}'"
 

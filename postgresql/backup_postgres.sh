@@ -86,6 +86,8 @@ if [[ "${MODE}" == "dummy-run" ]]; then
     TEST_MODE="true"
 fi
 
+# METADATA_DB: utilisé pour la publication de métriques et metadata PBS
+METADATA_DB=""
 # Variables globales
 START_TIME=$(date +%s)
 BACKUP_DATE=$(date +"%Y%m%d%H%M")
@@ -115,17 +117,17 @@ PBS_STATUS="unknown"
 PBS_OK="false"
 
 # Support pour sauvegarder plusieurs bases.
-# Vous pouvez définir BACKUP_TARGETS dans la conf comme CSV, ex: BACKUP_TARGETS="postgres,ltss"
-# Sinon on prend DB_NAME et on ajoute LTSS_DB_NAME si BACKUP_LTSS=true
-if [[ -n "${BACKUP_TARGETS:-}" ]]; then
-    IFS=',' read -r -a TARGETS_ARRAY <<< "$BACKUP_TARGETS"
-else
-    TARGETS_ARRAY=("$DB_NAME")
-    BACKUP_LTSS="${BACKUP_LTSS:-false}"
-    LTSS_DB_NAME="${LTSS_DB_NAME:-ltss}"
-    if [[ "$BACKUP_LTSS" == "true" ]]; then
-        TARGETS_ARRAY+=("$LTSS_DB_NAME")
+# Si on est en mode perdb, BACKUP_TARGETS doit être défini (CSV). En mode cluster, on l'ignore.
+if [[ "${BACKUP_MODE:-cluster}" == "perdb" ]]; then
+    if [[ -n "${BACKUP_TARGETS:-}" ]]; then
+        IFS=',' read -r -a TARGETS_ARRAY <<< "$BACKUP_TARGETS"
+    else
+        echo "BACKUP_TARGETS non défini dans la configuration. Définissez BACKUP_TARGETS=\"db1,db2\"" >&2
+        [[ "${MODE}" != "check" ]] && rm -f "$LOCK_FILE" || true
+        exit 1
     fi
+else
+    TARGETS_ARRAY=()
 fi
 
 # Assurer une valeur par défaut pour le suffixe de test si non fournie
@@ -245,7 +247,7 @@ publish_metrics() {
     
     local current_timestamp=$(date -Iseconds)
     
-    local unified_payload="{\n        \"status\": \"$BACKUP_STATUS\",\n        \"duration\": $BACKUP_DURATION,\n        \"size_mb\": $BACKUP_SIZE,\n        \"compression_ratio\": $COMPRESSION_RATIO,\n        \"backup_file\": \"$BACKUP_FILE_COMPRESSED\",\n        \"last_backup_timestamp\": \"$current_timestamp\",\n        \"error_message\": \"$ERROR_MESSAGE\",\n        \"backup_date\": \"$BACKUP_DATE\",\n        \"days_kept\": $DAYS_TO_KEEP,\n        \"pbs_enabled\": $( [ "${PBS_ENABLED:-false}" = "true" ] && echo "true" || echo "false" ),\n        \"pbs_ok\": $( [ "$PBS_OK" = "true" ] && echo "true" || echo "false" ),\n        \"pbs_status\": \"$PBS_STATUS\",\n        \"pbs_repository\": \"${PBS_REPOSITORY:-}\",\n        \"pbs_backup_id\": \"${PBS_BACKUP_ID:-}\",\n        \"database_name\": \"$DB_NAME\",\n        \"database_host\": \"$DB_HOST\",\n        \"test_mode\": $( [ "$TEST_MODE" = "true" ] && echo "true" || echo "false" ),\n        \"test_dummy_size_mb\": $TEST_DUMMY_SIZE_MB\n    }"
+    local unified_payload="{\n        \"status\": \"$BACKUP_STATUS\",\n        \"duration\": $BACKUP_DURATION,\n        \"size_mb\": $BACKUP_SIZE,\n        \"compression_ratio\": $COMPRESSION_RATIO,\n        \"backup_file\": \"$BACKUP_FILE_COMPRESSED\",\n        \"last_backup_timestamp\": \"$current_timestamp\",\n        \"error_message\": \"$ERROR_MESSAGE\",\n        \"backup_date\": \"$BACKUP_DATE\",\n        \"days_kept\": $DAYS_TO_KEEP,\n        \"pbs_enabled\": $( [ "${PBS_ENABLED:-false}" = "true" ] && echo "true" || echo "false" ),\n        \"pbs_ok\": $( [ "$PBS_OK" = "true" ] && echo "true" || echo "false" ),\n        \"pbs_status\": \"$PBS_STATUS\",\n        \"pbs_repository\": \"${PBS_REPOSITORY:-}\",\n        \"pbs_backup_id\": \"${PBS_BACKUP_ID:-}\",\n        \"database_name\": \"${METADATA_DB:-}\",\n        \"database_host\": \"$DB_HOST\",\n        \"test_mode\": $( [ "$TEST_MODE" = "true" ] && echo "true" || echo "false" ),\n        \"test_dummy_size_mb\": $TEST_DUMMY_SIZE_MB\n    }"
     
     mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" \
         ${MQTT_USER:+-u "$MQTT_USER"} ${MQTT_PASSWORD:+-P "$MQTT_PASSWORD"} \
@@ -324,12 +326,12 @@ pbs_backup_file() {
     local staging_dir
     staging_dir=$(mktemp -d -p "${BACKUP_DIR%/}" ".pbs-staging.${BACKUP_DATE}.XXXXXX")
 
-    cat >"$staging_dir/metadata.json" <<EOF
+        cat >"$staging_dir/metadata.json" <<EOF
 {
-  "backup_date": "${BACKUP_DATE}",
-  "database": "${DB_NAME}",
-  "database_host": "${DB_HOST}",
-  "file": "${BACKUP_FILE}"
+    "backup_date": "${BACKUP_DATE}",
+    "database": "${METADATA_DB:-}",
+    "database_host": "${DB_HOST}",
+    "file": "${BACKUP_FILE}"
 }
 
 EOF
@@ -357,10 +359,11 @@ EOF
         return 1
     }
 
-    local pbs_backup_id="${PBS_BACKUP_ID:-postgres}"
-    if [[ "${DB_NAME}" == "${LTSS_DB_NAME:-ltss}" && -n "${PBS_BACKUP_ID_LTSS:-}" ]]; then
-        pbs_backup_id="${PBS_BACKUP_ID_LTSS}"
-    fi
+    # Génération dynamique de l'ID PBS: postgres-{db_name}
+    local db_for_id="${DB_NAME:-${METADATA_DB:-cluster}}"
+    local pbs_backup_id="postgres-${db_for_id}"
+    # Sanitize: lowercase, espaces -> '-', caractères non alphanumériques remplacés par '-'
+    pbs_backup_id=$(printf '%s' "$pbs_backup_id" | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]\+/-/g' | sed 's/[^a-z0-9._-]/-/g')
 
     local old_pbs_backup_id="${PBS_BACKUP_ID:-}"
     PBS_BACKUP_ID="$pbs_backup_id"
@@ -480,7 +483,8 @@ create_dummy_backup() {
             echo "# PostgreSQL Backup Test File"
             echo "# Created: $(date)"
             echo "# Size: ${TEST_DUMMY_SIZE_MB}MB"
-            echo "# Database: $DB_NAME (TEST MODE)"
+            local display_db="${DB_NAME:-${METADATA_DB:-cluster}}"
+            echo "# Database: ${display_db} (TEST MODE)"
             echo "# Host: $DB_HOST"
             echo "# This is a dummy file for testing purposes"
             echo "# Original data follows..."
@@ -602,6 +606,9 @@ main() {
         cluster)
             log_info "--- Mode: cluster (pg_basebackup) ---"
 
+            # Indiquer que c'est un backup cluster pour les métadonnées/metrics
+            METADATA_DB="cluster"
+
             BACKUP_FILE="${BACKUP_DATE}_cluster${test_suffix}${FILE_SUFFIX}"
             BACKUP_PATH="${BACKUP_DIR}${BACKUP_FILE}"
             COMPRESSED_PATH="${BACKUP_PATH}.gz"
@@ -652,7 +659,8 @@ main() {
             log_info "--- Mode: perdb (pg_dump) ---"
             for target_db in "${TARGETS_ARRAY[@]}"; do
                 log_info "Traitement de la base: $target_db"
-                DB_NAME="$target_db"
+            DB_NAME="$target_db"
+            METADATA_DB="$DB_NAME"
 
                 BACKUP_FILE="${BACKUP_DATE}_${DB_NAME}${test_suffix}${FILE_SUFFIX}"
                 BACKUP_PATH="${BACKUP_DIR}${BACKUP_FILE}"
