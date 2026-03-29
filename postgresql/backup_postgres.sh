@@ -9,16 +9,18 @@
 # - Configuration centralisée
 #
 set -euo pipefail
+    
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-source libs/logs.sh
-source libs/config.sh
-source libs/cli.sh
-source libs/lock.sh
-source libs/tools.sh
-source modules/mqtt_discovery.sh
-source modules/pbs_backup.sh
-source modules/db_backup.sh
-source modules/runner.sh
+source "${SCRIPT_DIR}/libs/logs.sh"
+source "${SCRIPT_DIR}/libs/config.sh"
+source "${SCRIPT_DIR}/libs/cli.sh"
+source "${SCRIPT_DIR}/libs/lock.sh"
+source "${SCRIPT_DIR}/libs/tools.sh"
+source "${SCRIPT_DIR}/modules/mqtt_discovery.sh"
+source "${SCRIPT_DIR}/modules/pbs_backup.sh"
+source "${SCRIPT_DIR}/modules/db_backup.sh"
+source "${SCRIPT_DIR}/modules/runner.sh"
 
 # Variables globales
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
