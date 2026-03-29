@@ -144,16 +144,14 @@ COMPRESSION_ENABLED="${COMPRESSION_ENABLED:-true}"
 # ============================================================================
 
 log() {
-    local level="$1"
-    shift
-    local message="$*"
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    
-    echo "[$timestamp] [$level] $message" | tee -a "$LOG_FILE"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$1] ${*:2}" | tee -a "$LOG_FILE"
 }
 
 log_info() {
     log "INFO" "$@"
+}
+log_debug() {
+    log "DEBUG" "$@"
 }
 
 log_warn() {
@@ -163,100 +161,152 @@ log_warn() {
 log_error() {
     log "ERROR" "$@"
 }
-
-log_debug() {
-    [[ "$LOG_LEVEL" == "DEBUG" ]] && log "DEBUG" "$@" || true
-}
-
-# Fonction de nettoyage en cas d'erreur
-cleanup() {
-    local exit_code=$?
-    
-    if [[ $exit_code -ne 0 ]]; then
-        log_error "Script interrompu avec le code d'erreur: $exit_code"
-        if [[ "$BACKUP_STATUS" == "unknown" || "$BACKUP_STATUS" == "running" || "$BACKUP_STATUS" == "success" ]]; then
-            BACKUP_STATUS="failed"
-        fi
-        if [[ -z "${ERROR_MESSAGE:-}" ]]; then
-            ERROR_MESSAGE="Script interrompu avec le code d'erreur: $exit_code"
-        fi
-        
-        [[ -f "$BACKUP_PATH" ]] && rm -f "$BACKUP_PATH"
-        [[ -f "$COMPRESSED_PATH" ]] && rm -f "$COMPRESSED_PATH"
-    fi
-    
-    BACKUP_DURATION=$(($(date +%s) - START_TIME))
-    publish_metrics
-    
-    if [[ "${MODE}" != "check" ]]; then
-        rm -f "$LOCK_FILE"
-    fi
-    
-    exit $exit_code
-}
-
-trap cleanup EXIT
-
-# ============================================================================
-# FONCTIONS MQTT / HOME ASSISTANT
-# ============================================================================
-
 publish_mqtt_discovery() {
-    if [[ "$MQTT_ENABLED" != "true" ]]; then
+    if [[ "${MQTT_ENABLED:-false}" != "true" ]]; then
         return 0
     fi
-    
+
     log_debug "Publication de la déclaration de device MQTT"
-    
-    local device_config='{
-        "device": {
-            "identifiers": ["postgres_backup_monitor"],
-            "name": "PostgreSQL Backup Monitor",
-            "model": "PostgreSQL Backup Script",
-            "manufacturer": "Custom Script",
-            "sw_version": "2.0.0"
-        },
-        "origin": {
-            "name": "PostgreSQL Backup Script"
-        },
-        "state_topic": "'$MQTT_STATE_TOPIC'",
-        "components": {
-            "status": {
-                "platform": "sensor",
-                "unique_id": "postgres_backup_status",
-                "default_entity_id": "sensor.postgres_backup_status",
-                "has_entity_name": true,
-                "force_update": true,
-                "name": "Status",
-                "icon": "mdi:database-check",
-                "value_template": "{{ value_json.status }}",
-                "device_class": null,
-                "state_class": null
-            }
-        }
-    }'
-    
-    mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" \
-        ${MQTT_USER:+-u "$MQTT_USER"} ${MQTT_PASSWORD:+-P "$MQTT_PASSWORD"} \
-        -t "$MQTT_DEVICE_TOPIC" -m "$device_config" -r 2>/dev/null || true
+
+    local host
+    host=$(hostname -s 2>/dev/null || hostname)
+    host=$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
+
+    # perdb: publier un device par base
+    if [[ "${BACKUP_MODE:-cluster}" == "perdb" && ${#TARGETS_ARRAY[@]} -gt 0 ]]; then
+        for db in "${TARGETS_ARRAY[@]}"; do
+            local db_sanitized
+            db_sanitized=$(printf '%s' "$db" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
+            local device_backup_id="${host}_${db_sanitized}"
+            if [[ "${TEST_MODE:-false}" == "true" ]]; then
+                device_backup_id="test_${device_backup_id}"
+            fi
+
+            local device_topic
+            device_topic=$(printf '%s' "homeassistant/device/backup/${device_backup_id}/config" | tr '[:upper:]' '[:lower:]')
+            local state_topic
+            state_topic=$(printf '%s' "${MQTT_BASE_TOPIC:-backup}/${device_backup_id}/state" | tr '[:upper:]' '[:lower:]')
+
+            local device_config
+            device_config='{
+                "device": {
+                    "identifiers": ["'"postgres_backup_monitor_${db_sanitized}"'"],
+                    "name": "PostgreSQL Backup Monitor ('"$db_sanitized"')",
+                    "model": "PostgreSQL Backup Script",
+                    "manufacturer": "Custom Script",
+                    "sw_version": "2.0.0"
+                },
+                "origin": {
+                    "name": "PostgreSQL Backup Script"
+                },
+                "state_topic": "'"$state_topic"'",
+                "components": {
+                    "status": {
+                        "platform": "sensor",
+                        "unique_id": "postgres_backup_status_'"$db_sanitized"'",
+                        "name": "Status"
+                    }
+                }
+            }'
+
+            mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" \
+                ${MQTT_USER:+-u "$MQTT_USER"} ${MQTT_PASSWORD:+-P "$MQTT_PASSWORD"} \
+                -t "$device_topic" -m "$device_config" -r 2>/dev/null || true
+        done
+    else
+        # cluster: déclaration unique pour host/full
+        local device_backup_id="${host}_full"
+        if [[ "${TEST_MODE:-false}" == "true" ]]; then
+            device_backup_id="test_${device_backup_id}"
+        fi
+        local device_topic
+        device_topic=$(printf '%s' "homeassistant/device/backup/${device_backup_id}/config" | tr '[:upper:]' '[:lower:]')
+        local state_topic
+        state_topic=$(printf '%s' "${MQTT_BASE_TOPIC:-backup}/${device_backup_id}/state" | tr '[:upper:]' '[:lower:]')
+
+        local device_config
+            device_config='{
+                "device": {
+                    "identifiers": ["postgres_backup_monitor"],
+                    "name":"PostgreSQL Backup Monitor",
+                    "model":"PostgreSQL Backup Script",
+                    "manufacturer":"Custom Script",
+                    "sw_version":"2.0.0"
+                },
+                "origin": {
+                    "name":"PostgreSQL Backup Script"
+                },
+                "state_topic":"'"$state_topic"'",
+                "components": {
+                    "status": {
+                        "platform":"sensor",
+                        "unique_id":"postgres_backup_status",
+                        "name":"Status"
+                    }
+                }
+            }'
+
+        mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" \
+            ${MQTT_USER:+-u "$MQTT_USER"} ${MQTT_PASSWORD:+-P "$MQTT_PASSWORD"} \
+            -t "$device_topic" -m '' -r 2>/dev/null || true
+    fi
 }
 
 publish_metrics() {
     if [[ "$MQTT_ENABLED" != "true" ]]; then
         return 0
     fi
-    
     log_debug "Publication des métriques MQTT unifiées"
-    
-    local current_timestamp=$(date -Iseconds)
-    
-    local unified_payload="{\n        \"status\": \"$BACKUP_STATUS\",\n        \"duration\": $BACKUP_DURATION,\n        \"size_mb\": $BACKUP_SIZE,\n        \"compression_ratio\": $COMPRESSION_RATIO,\n        \"backup_file\": \"$BACKUP_FILE_COMPRESSED\",\n        \"last_backup_timestamp\": \"$current_timestamp\",\n        \"error_message\": \"$ERROR_MESSAGE\",\n        \"backup_date\": \"$BACKUP_DATE\",\n        \"days_kept\": $DAYS_TO_KEEP,\n        \"pbs_enabled\": $( [ "${PBS_ENABLED:-false}" = "true" ] && echo "true" || echo "false" ),\n        \"pbs_ok\": $( [ "$PBS_OK" = "true" ] && echo "true" || echo "false" ),\n        \"pbs_status\": \"$PBS_STATUS\",\n        \"pbs_repository\": \"${PBS_REPOSITORY:-}\",\n        \"pbs_backup_id\": \"${PBS_BACKUP_ID:-}\",\n        \"database_name\": \"${METADATA_DB:-}\",\n        \"database_host\": \"$DB_HOST\",\n        \"test_mode\": $( [ "$TEST_MODE" = "true" ] && echo "true" || echo "false" ),\n        \"test_dummy_size_mb\": $TEST_DUMMY_SIZE_MB\n    }"
-    
+
+    local current_timestamp
+    current_timestamp=$(date -Iseconds)
+
+    # Déterminer un backup_id pour le topic (utilise PBS_BACKUP_ID s'il est défini, sinon host_full)
+    local publish_id
+    publish_id="${PBS_BACKUP_ID:-}"
+    if [[ -z "$publish_id" ]]; then
+        local host
+        host=$(hostname -s 2>/dev/null || hostname)
+        host=$(printf '%s' "$host" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
+        publish_id="${host}_full"
+        if [[ "${TEST_MODE:-false}" == "true" ]]; then
+            publish_id="test_${publish_id}"
+        fi
+    fi
+
+    local state_topic
+    state_topic=$(printf '%s' "${MQTT_BASE_TOPIC:-backup}/${publish_id}/state" | tr '[:upper:]' '[:lower:]')
+
+    local unified_payload
+    unified_payload=$(cat <<JSON
+{
+  "status": "$BACKUP_STATUS",
+  "duration": $BACKUP_DURATION,
+  "size_mb": $BACKUP_SIZE,
+  "compression_ratio": $COMPRESSION_RATIO,
+  "backup_file": "$BACKUP_FILE_COMPRESSED",
+  "last_backup_timestamp": "$current_timestamp",
+  "error_message": "$ERROR_MESSAGE",
+  "backup_date": "$BACKUP_DATE",
+  "days_kept": $DAYS_TO_KEEP,
+  "pbs_enabled": $( [ "${PBS_ENABLED:-false}" = "true" ] && echo "true" || echo "false" ),
+  "pbs_ok": $( [ "$PBS_OK" = "true" ] && echo "true" || echo "false" ),
+  "pbs_status": "$PBS_STATUS",
+  "pbs_repository": "${PBS_REPOSITORY:-}",
+  "pbs_backup_id": "${PBS_BACKUP_ID:-}",
+  "database_name": "${METADATA_DB:-}",
+  "database_host": "$DB_HOST",
+  "test_mode": $( [ "$TEST_MODE" = "true" ] && echo "true" || echo "false" ),
+  "test_dummy_size_mb": $TEST_DUMMY_SIZE_MB
+}
+JSON
+)
+
     mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" \
         ${MQTT_USER:+-u "$MQTT_USER"} ${MQTT_PASSWORD:+-P "$MQTT_PASSWORD"} \
-        -t "$MQTT_STATE_TOPIC" -m "$unified_payload" -r 2>/dev/null || true
-        
-    log_debug "Métriques publiées sur: $MQTT_STATE_TOPIC"
+        -t "$state_topic" -m "$unified_payload" -r 2>/dev/null || true
+
+    log_debug "Métriques publiées sur: $state_topic"
 }
 
 # =========================================================================
@@ -268,8 +318,8 @@ pbs_is_enabled() {
 }
 
 # Calcul du PBS_BACKUP_ID selon le mode et la base
-# - perdb: postgres_{hostname}_{dbname}
-# - cluster: postgres_{hostname}_full
+# - perdb: ${hostname}_${dbname}
+# - cluster: ${hostname}_full
 # - si TEST_MODE=true, préfixe 'test_' ajouté
 compute_pbs_backup_id() {
     local mode="$1"
@@ -292,7 +342,6 @@ compute_pbs_backup_id() {
 }
 
 pbs_run_backup() {
-    local -a backup_specs=()
     local backup_id="${PBS_BACKUP_ID:-postgres}"
     local backup_type="host"
     local pbs_namespace="${PBS_NAMESPACE:-}"
@@ -316,7 +365,6 @@ pbs_run_backup() {
 
     local -a env_args=("PBS_REPOSITORY=${repo_arg}")
     [[ -n "${PBS_PASSWORD:-}" ]] && env_args+=("PBS_PASSWORD=${PBS_PASSWORD}")
-    [[ -n "${PBS_PASSWORD_FILE:-}" ]] && env_args+=("PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}")
     [[ -n "${PBS_FINGERPRINT:-}" ]] && env_args+=("PBS_FINGERPRINT=${PBS_FINGERPRINT}")
 
     if [[ "$pbs_client_mode" == "docker" ]]; then
@@ -348,11 +396,10 @@ pbs_run_backup() {
         log_debug "DEBUG PBS docker args: ${pbs_args[*]}"
 
         local docker_out
-        if docker_out=$(docker run --rm --network host \
+            if docker_out=$(docker run --rm --network host \
             "${docker_mounts[@]}" \
             -e "PBS_REPOSITORY=${repo_arg}" \
             ${PBS_PASSWORD:+-e "PBS_PASSWORD=${PBS_PASSWORD}"} \
-            ${PBS_PASSWORD_FILE:+-e "PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}"} \
             ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
             "$pbs_docker_image" \
             "${pbs_args[@]}" 2>&1); then
@@ -406,7 +453,7 @@ pbs_backup_file() {
     local staging_dir
     staging_dir=$(mktemp -d -p "${BACKUP_DIR%/}" ".pbs-staging.${BACKUP_DATE}.XXXXXX")
 
-        cat >"$staging_dir/metadata.json" <<EOF
+    cat >"$staging_dir/metadata.json" <<EOF
 {
     "backup_date": "${BACKUP_DATE}",
     "database": "${METADATA_DB:-}",
@@ -426,9 +473,6 @@ EOF
         fi
     fi
 
-    # metadata.pxar est fixé en dur
-    local meta_archive_name="metadata.pxar"
-
     mkdir -p "$staging_dir/meta" "$staging_dir/data"
     mv "$staging_dir/metadata.json" "$staging_dir/meta/metadata.json"
 
@@ -438,10 +482,8 @@ EOF
         return 1
     }
     # L'archive pxar porte le nom du PBS_BACKUP_ID
-    local archive_name="${PBS_BACKUP_ID}.pxar"
-
-    local meta_spec="${meta_archive_name}:${staging_dir}/meta"
-    local data_spec="${archive_name}:${staging_dir}/data"
+    local meta_spec="metadata.pxar:${staging_dir}/meta"
+    local data_spec="${PBS_BACKUP_ID}.pxar:${staging_dir}/data"
 
     log_info "Préparation PBS: meta_spec='${meta_spec}', data_spec='${data_spec}', backup_id='${PBS_BACKUP_ID}'"
 
@@ -545,7 +587,7 @@ perform_cluster_backup() {
 create_dummy_backup() {
     log_debug "Création d'un fichier dummy de test"
     
-    local size_bytes=$((TEST_DUMMY_SIZE_MB * 1024 * 1024))
+    # size_bytes variable removed (unused) to follow simplification rule
     
     if dd if=/dev/urandom of="$BACKUP_PATH" bs=1M count="$TEST_DUMMY_SIZE_MB" 2>>"$LOG_FILE"; then
         log_info "Fichier dummy créé: $(basename "$BACKUP_PATH") (${TEST_DUMMY_SIZE_MB}MB)"
