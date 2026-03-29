@@ -409,13 +409,17 @@ EOF
         return 1
     }
 
-    # Génération dynamique de l'ID PBS: postgres-{db_name}
-    local db_for_id="${DB_NAME:-${METADATA_DB:-cluster}}"
-    local pbs_backup_id="postgres-${db_for_id}"
-    # Sanitize: lowercase, espaces -> '-', caractères non alphanumériques remplacés par '-'
-    pbs_backup_id=$(printf '%s' "$pbs_backup_id" | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]\+/-/g' | sed 's/[^a-z0-9._-]/-/g')
-
+    # Utiliser l'ID PBS configuré si présent, sinon générer postgres-{db_name}
     local old_pbs_backup_id="${PBS_BACKUP_ID:-}"
+    if [[ -n "${old_pbs_backup_id:-}" ]]; then
+        local pbs_backup_id="${old_pbs_backup_id}"
+    else
+        local db_for_id="${DB_NAME:-${METADATA_DB:-cluster}}"
+        local pbs_backup_id="postgres-${db_for_id}"
+        # Sanitize: lowercase, espaces -> '-', caractères non alphanumériques remplacés par '-'
+        pbs_backup_id=$(printf '%s' "$pbs_backup_id" | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]\+/-/g' | sed 's/[^a-z0-9._-]/-/g')
+    fi
+
     PBS_BACKUP_ID="$pbs_backup_id"
 
     local meta_spec="${meta_archive_name}:${staging_dir}/meta"
