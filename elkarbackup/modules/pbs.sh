@@ -50,6 +50,100 @@ pbs::check_connection() {
     return $test_result
 }
 
+# Backup du répertoire source et du répertoire de backups (BACKUP_SOURCE_DIR et BACKUP_DIR)
+pbs::backup_paths() {
+    local source_dir="${BACKUP_SOURCE_DIR:-}"
+    local backup_dir="${BACKUP_DIR%/}"
+
+    if [[ -z "$source_dir" || ! -d "$source_dir" ]]; then
+        log::warn "pbs::backup_paths: BACKUP_SOURCE_DIR absent ou introuvable, saut de l'envoi du répertoire source"
+        return 0
+    fi
+
+    if [[ -z "${PBS_REPOSITORY:-}" ]]; then
+        log::error "PBS_REPOSITORY non défini"
+        return 1
+    fi
+
+    if ! pbs::ensure_image; then
+        log::error "Impossible de préparer l'image Docker PBS"
+        return 1
+    fi
+
+    local source_name="${source_dir##*/}"
+    local backup_name="${backup_dir##*/}"
+
+    local source_safe
+    local backup_safe
+    source_safe=$(tools::sanitize_name "$source_name")
+    backup_safe=$(tools::sanitize_name "$backup_name")
+
+    local image="${PBS_DOCKER_IMAGE:-proxmox-pbs-client:latest}"
+
+    local -a mounts=()
+    local -a specs=()
+    if [[ "$PBS_CLIENT_MODE" == "docker" ]]; then
+        mounts+=("--volume" "${source_dir}:/source:ro")
+        specs+=("${source_safe}.pxar:/source")
+        mounts+=("--volume" "${backup_dir}:/backups:ro")
+        specs+=("${backup_safe}.pxar:/backups")
+    else
+        specs+=("${source_safe}.pxar:${source_dir}")
+        specs+=("${backup_safe}.pxar:${backup_dir}")
+    fi
+
+    local -a extra_args_local=()
+    extra_args_local+=(--exclude "backup" --exclude "mariadb/db")
+    if [[ -n "${PBS_CHANGE_DETECTION_MODE:-}" ]]; then
+        extra_args_local+=(--change-detection-mode "$PBS_CHANGE_DETECTION_MODE")
+    fi
+    if [[ -n "${PBS_CLIENT_EXTRA_ARGS:-}" ]]; then
+        read -r -a extra_user_args <<< "$PBS_CLIENT_EXTRA_ARGS"
+        extra_args_local+=("${extra_user_args[@]}")
+    fi
+
+    log::info "Envoi PBS direct: repository='${PBS_REPOSITORY_FULL}', source='${source_dir}', backups='${backup_dir}'"
+
+    if [[ "$PBS_CLIENT_MODE" == "docker" ]]; then
+        local -a pbs_args=(
+            backup
+            "${specs[@]}"
+            --backup-id "${PBS_BACKUP_ID:-elkarbackup}"
+            --backup-type "${PBS_BACKUP_TYPE:-host}"
+            ${PBS_NAMESPACE:+--ns "$PBS_NAMESPACE"}
+            --repository "${PBS_REPOSITORY_FULL}"
+            "${extra_args_local[@]}"
+        )
+
+        if [[ "${DRY_RUN:-false}" == "true" ]]; then
+            echo "DRY-RUN: docker run --rm --network host ${mounts[*]} -e PBS_REPOSITORY=${PBS_REPOSITORY_FULL} $image ${pbs_args[*]}"
+            return 0
+        fi
+
+        docker run --rm --network host \
+            "${mounts[@]}" \
+            -e "PBS_REPOSITORY=${PBS_REPOSITORY_FULL}" \
+            ${PBS_PASSWORD:+-e "PBS_PASSWORD=${PBS_PASSWORD}"} \
+            ${PBS_PASSWORD_FILE:+-e "PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}"} \
+            ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
+            "$image" \
+            "${pbs_args[@]}"
+
+        return $?
+    else
+        if [[ "${DRY_RUN:-false}" == "true" ]]; then
+            echo "DRY-RUN: proxmox-backup-client backup ${specs[*]} --repository ${PBS_REPOSITORY_FULL} --backup-id ${PBS_BACKUP_ID:-elkarbackup} --backup-type ${PBS_BACKUP_TYPE:-host} ${extra_args_local[*]}"
+            return 0
+        fi
+
+        env ${PBS_FINGERPRINT:+PBS_FINGERPRINT="$PBS_FINGERPRINT"} \
+            ${PBS_PASSWORD:+PBS_PASSWORD="$PBS_PASSWORD"} \
+            proxmox-backup-client backup "${specs[@]}" --repository "$PBS_REPOSITORY_FULL" --backup-id "${PBS_BACKUP_ID:-elkarbackup}" --backup-type "${PBS_BACKUP_TYPE:-host}" ${PBS_NAMESPACE:+--ns "$PBS_NAMESPACE"} "${extra_args_local[@]}"
+
+        return $?
+    fi
+}
+
 pbs::run_backup() {
     local staging_dir="$1"
     local archive_name="${PBS_ARCHIVE_NAME:-elkarbackup.pxar}"

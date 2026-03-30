@@ -54,10 +54,14 @@ MQTT_STATE_TOPIC="backup/${PBS_BACKUP_ID}/state"
 DOCKER_ID=""
 # Vérifier l'existence du conteneur Docker uniquement en exécution réelle
 if [[ "$MODE" == "backup" ]]; then
-    DOCKER_ID=$(docker ps --no-trunc -aqf name="$DOCKER_CONTAINER_NAME")
+    # Si un nom est configuré, tenter de retrouver (acceptant les correspondances partielles)
+    if [[ -n "${DOCKER_CONTAINER_NAME:-}" ]]; then
+        DOCKER_ID=$(docker ps --no-trunc -aqf "name=${DOCKER_CONTAINER_NAME}" 2>/dev/null | head -n1 || true)
+    fi
 
     if [[ -z "$DOCKER_ID" ]]; then
-        echo "ERREUR: Conteneur Docker '$DOCKER_CONTAINER_NAME' non trouvé"
+        echo "ERREUR: Conteneur Docker '${DOCKER_CONTAINER_NAME:-}' non trouvé"
+        echo "Vérifiez DOCKER_CONTAINER_NAME dans $CONFIG_FILE ou lancez le conteneur MariaDB"
         rm -f "$LOCK_FILE"
         exit 1
     fi
@@ -66,7 +70,6 @@ fi
 # ============================================================================
 # FONCTIONS UTILITAIRES
 # ============================================================================
-
 
 # Cleanup trap
 tools::install_trap "$MODE" "$LOCK_FILE"
@@ -108,14 +111,24 @@ main() {
     # Pas de compression locale, les fichiers seront compressés par PBS
     COMPRESSION_RATIO=0
 
-    # Envoi vers PBS (inclut les dump SQL + répertoire parent via symlink)
+    # Envoi vers PBS: d'abord les dumps SQL, puis (comportement historique) le répertoire source/backups
     local pbs_successful=true
     if [[ ${#backup_files_for_pbs[@]} -gt 0 ]]; then
         if ! pbs::backup_files "${backup_files_for_pbs[@]}"; then
-            log::warn "Sauvegardes créées localement mais échec de l'envoi PBS"
+            log::warn "Sauvegardes créées localement mais échec de l'envoi des fichiers SQL vers PBS"
             pbs_successful=false
         else
-            log::info "Envoi PBS réussi"
+            log::info "Envoi PBS des fichiers SQL réussi"
+        fi
+    fi
+
+    # Inclure le répertoire source et le répertoire de backups si configurés
+    if [[ -n "${BACKUP_SOURCE_DIR:-}" ]]; then
+        if pbs::backup_paths; then
+            log::info "Envoi PBS du répertoire source/backups réussi"
+        else
+            log::warn "Échec de l'envoi du répertoire source/backups vers PBS"
+            pbs_successful=false
         fi
     fi
 
