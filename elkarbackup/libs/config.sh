@@ -41,4 +41,8 @@ config::load() {
     BACKUP_FILES=()
 
     REPO_ROOT="$repo_root"
+
+    # Valeurs par défaut
+    DUMMY_FILE_SIZE_MB="${DUMMY_FILE_SIZE_MB:-50}"
+    BACKUP_SOURCE_DIR="${BACKUP_SOURCE_DIR:-${REPO_ROOT}}"
 }

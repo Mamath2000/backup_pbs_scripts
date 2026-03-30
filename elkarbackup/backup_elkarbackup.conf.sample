@@ -17,6 +17,10 @@ DB_NAMES=("elkarbackup")  # Liste des bases à sauvegarder
 # ============================================================================
 # Répertoire de sauvegarde local
 BACKUP_DIR="/mnt/user/docker/elkarbackup/backup/"
+# Répertoire racine de l'application ElkarBackup (volumes à monter pour PBS)
+#BACKUP_SOURCE_DIR="/mnt/user/docker/elkar-v2"
+# Taille du fichier dummy utilisé en mode --dummy-run (MB)
+#DUMMY_FILE_SIZE_MB=50
 # Nombre de jours de conservation des sauvegardes locales
 DAYS_TO_KEEP=10
 # Nombre maximum de sauvegardes locales à conserver (indépendamment de l'âge)

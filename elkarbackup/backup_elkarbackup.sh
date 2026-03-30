@@ -27,10 +27,11 @@ CONFIG_FILE="${SCRIPT_DIR}/backup_elkarbackup.conf"
 source "${SCRIPT_DIR}/libs/logs.sh"
 source "${SCRIPT_DIR}/libs/config.sh"
 source "${SCRIPT_DIR}/libs/cli.sh"
+source "${SCRIPT_DIR}/libs/lock.sh"
 source "${SCRIPT_DIR}/libs/tools.sh"
-source "${SCRIPT_DIR}/libs/pbs.sh"
-source "${SCRIPT_DIR}/libs/mqtt.sh"
-source "${SCRIPT_DIR}/libs/dump.sh"
+source "${SCRIPT_DIR}/modules/pbs.sh"
+source "${SCRIPT_DIR}/modules/mqtt.sh"
+source "${SCRIPT_DIR}/modules/dump.sh"
 
 cli::parse "$@"
 
@@ -51,7 +52,8 @@ MQTT_STATE_TOPIC="backup/${PBS_BACKUP_ID}/state"
 
 # Obtenir l'ID du conteneur Docker (sauf en mode check)
 DOCKER_ID=""
-if [[ "$MODE" != "check" ]]; then
+# Vérifier l'existence du conteneur Docker uniquement en exécution réelle
+if [[ "$MODE" == "backup" ]]; then
     DOCKER_ID=$(docker ps --no-trunc -aqf name="$DOCKER_CONTAINER_NAME")
 
     if [[ -z "$DOCKER_ID" ]]; then

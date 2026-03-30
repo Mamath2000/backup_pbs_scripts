@@ -39,5 +39,7 @@ cli::parse() {
         shift
     done
 
-    [[ -z "$MODE" ]] && cli::usage
+    if [[ -z "$MODE" ]]; then
+        cli::usage
+    fi
 }

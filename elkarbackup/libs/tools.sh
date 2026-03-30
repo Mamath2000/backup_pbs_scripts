@@ -16,7 +16,7 @@ tools::check_dependencies() {
     fi
 
     if [[ ${#missing_deps[@]} -gt 0 ]]; then
-        log_error "Dépendances manquantes: ${missing_deps[*]}"
+        log::error "Dépendances manquantes: ${missing_deps[*]}"
         exit 1
     fi
 }
@@ -67,6 +67,9 @@ tools::get_size_gb() {
 }
 
 tools::install_trap() {
+    # Accept optional MODE and LOCK_FILE arguments (backwards-compatible)
+    if [[ -n "${1:-}" ]]; then MODE="$1"; fi
+    if [[ -n "${2:-}" ]]; then LOCK_FILE="$2"; fi
     trap tools::cleanup_run EXIT
 }
 
@@ -97,3 +100,6 @@ tools::cleanup_run() {
 
     exit $exit_code
 }
+
+# Backwards-compatible wrapper: displaytime -> tools::displaytime
+displaytime() { tools::displaytime "$@"; }

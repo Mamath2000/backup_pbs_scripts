@@ -99,82 +99,76 @@ pbs::run_backup() {
 pbs::backup_files() {
     local -a files=("$@")
 
-    local source_dir="${BACKUP_SOURCE_DIR}"
+    if [[ ${#files[@]} -eq 0 ]]; then
+        log::error "pbs::backup_files: aucun fichier fourni"
+        return 1
+    fi
+
+    if [[ -z "${PBS_REPOSITORY:-}" ]]; then
+        log::error "PBS_REPOSITORY non défini"
+        return 1
+    fi
+
+    # Vérifier et construire l'image si nécessaire
+    if ! pbs::ensure_image; then
+        log::error "Impossible de préparer l'image Docker PBS"
+        return 1
+    fi
+
     local backup_dir="${BACKUP_DIR%/}"
-    local source_name="${source_dir##*/}"
-    local backup_name="${backup_dir##*/}"
 
-    local source_safe
-    local backup_safe
-    source_safe=$(tools::sanitize_name "$source_name")
-    backup_safe=$(tools::sanitize_name "$backup_name")
+    # Créer un répertoire de staging sous le répertoire de backup
+    local staging_dir
+    staging_dir=$(mktemp -d -p "${backup_dir}" ".pbs-staging.${BACKUP_DATE}.XXXXXX") || {
+        log::error "Impossible de créer le répertoire de staging PBS"
+        return 1
+    }
 
-    local image="${PBS_DOCKER_IMAGE:-proxmox-pbs-client:latest}"
+    # Nettoyage local du staging en cas d'interruption
+    trap 'rm -rf "$staging_dir" || true' INT TERM EXIT
 
-    # Construire les mounts et specs
-    local -a mounts=()
-    local -a specs=()
-    if [[ "$PBS_CLIENT_MODE" == "docker" ]]; then
-        mounts+=("--volume" "${source_dir}:/source:ro")
-        specs+=("${source_safe}.pxar:/source")
-        mounts+=("--volume" "${backup_dir}:/backups:ro")
-        specs+=("${backup_safe}.pxar:/backups")
-    else
-        specs+=("${source_safe}.pxar:${source_dir}")
-        specs+=("${backup_safe}.pxar:${backup_dir}")
-    fi
+    mkdir -p "$staging_dir/meta" "$staging_dir/data"
 
-    # Arguments additionnels: exclure les répertoires indésirables
-    local -a extra_args_local=()
-    extra_args_local+=(--exclude "backup" --exclude "mariadb/db")
-    if [[ -n "${PBS_CHANGE_DETECTION_MODE:-}" ]]; then
-        extra_args_local+=(--change-detection-mode "$PBS_CHANGE_DETECTION_MODE")
-    fi
-    if [[ -n "${PBS_CLIENT_EXTRA_ARGS:-}" ]]; then
-        read -r -a extra_user_args <<< "$PBS_CLIENT_EXTRA_ARGS"
-        extra_args_local+=("${extra_user_args[@]}")
-    fi
+    # Metadata simple
+    cat >"$staging_dir/meta/metadata.json" <<EOF
+{
+  "backup_date": "${BACKUP_DATE}",
+  "backup_id": "${PBS_BACKUP_ID:-}"
+}
+EOF
 
-    log::info "Envoi PBS direct: repository='${PBS_REPOSITORY_FULL}', source='${source_dir}', backups='${backup_dir}'"
-
-    if [[ "$PBS_CLIENT_MODE" == "docker" ]]; then
-        local -a pbs_args=(
-            backup
-            "${specs[@]}"
-            --backup-id "${PBS_BACKUP_ID:-elkarbackup}"
-            --backup-type "${PBS_BACKUP_TYPE:-host}"
-            ${PBS_NAMESPACE:+--ns "$PBS_NAMESPACE"}
-            --repository "${PBS_REPOSITORY_FULL}"
-            "${extra_args_local[@]}"
-        )
-
-        if [[ "${DRY_RUN:-false}" == "true" ]]; then
-            echo "DRY-RUN: docker run --rm --network host ${mounts[*]} -e PBS_REPOSITORY=${PBS_REPOSITORY_FULL} $image ${pbs_args[*]}"
-            return 0
+    local f
+    for f in "${files[@]}"; do
+        if [[ -z "$f" ]]; then
+            continue
         fi
-
-        docker run --rm --network host \
-            "${mounts[@]}" \
-            -e "PBS_REPOSITORY=${PBS_REPOSITORY_FULL}" \
-            ${PBS_PASSWORD:+-e "PBS_PASSWORD=${PBS_PASSWORD}"} \
-            ${PBS_PASSWORD_FILE:+-e "PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}"} \
-            ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
-            "$image" \
-            "${pbs_args[@]}"
-
-        return $?
-    else
-        # apt mode
-        if [[ "${DRY_RUN:-false}" == "true" ]]; then
-            echo "DRY-RUN: proxmox-backup-client backup ${specs[*]} --repository ${PBS_REPOSITORY_FULL} --backup-id ${PBS_BACKUP_ID:-elkarbackup} --backup-type ${PBS_BACKUP_TYPE:-host} ${extra_args_local[*]}"
-            return 0
+        if [[ ! -f "$f" ]]; then
+            log::warn "Fichier introuvable pour PBS: $f"
+            continue
         fi
+        local bname
+        bname=$(basename "$f")
+        if ! ln "$f" "$staging_dir/data/$bname" 2>/dev/null; then
+            if ! cp -a "$f" "$staging_dir/data/$bname"; then
+                log::error "Échec préparation du fichier pour PBS: $f"
+                rm -rf "$staging_dir" || true
+                trap - INT TERM EXIT
+                return 1
+            fi
+        fi
+    done
 
-        env ${PBS_FINGERPRINT:+PBS_FINGERPRINT="$PBS_FINGERPRINT"} \
-            ${PBS_PASSWORD:+PBS_PASSWORD="$PBS_PASSWORD"} \
-            proxmox-backup-client backup "${specs[@]}" --repository "$PBS_REPOSITORY_FULL" --backup-id "${PBS_BACKUP_ID:-elkarbackup}" --backup-type "${PBS_BACKUP_TYPE:-host}" ${PBS_NAMESPACE:+--ns "$PBS_NAMESPACE"} "${extra_args_local[@]}"
-
-        return $?
+    # Appel au runner PBS qui s'attend à un répertoire staging contenant meta/ et data/
+    if pbs::run_backup "$staging_dir"; then
+        log::info "Envoi PBS réussi pour les fichiers fournis"
+        rm -rf "$staging_dir" || true
+        trap - INT TERM EXIT
+        return 0
+    else
+        log::error "Échec de l'envoi PBS"
+        rm -rf "$staging_dir" || true
+        trap - INT TERM EXIT
+        return 1
     fi
 }
 
