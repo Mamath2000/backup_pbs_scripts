@@ -19,3 +19,4 @@ dist/
 *.egg-info/
 # Docker
 cli/pbs_client/*.log
+*.lock

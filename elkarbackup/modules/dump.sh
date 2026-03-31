@@ -33,7 +33,8 @@ dump::perform_database_backup() {
         # Commande de dump MariaDB (exécutée directement, sans /bin/bash -c)
         log::debug "Dump MariaDB pour la base: $database (user: $DB_USER)"
 
-        if docker exec -i mariadb mariadb-dump -u"${DB_USER}" -p"${DB_PASSWORD}" --databases "${database}" --skip-comments --single-transaction --routines --triggers > "$backup_file"; then
+        # Utiliser l'ID du conteneur trouvé ou le nom configuré
+        if docker exec -i "${DOCKER_ID}" mariadb-dump -u"${DB_USER}" -p"${DB_PASSWORD}" --databases "${database}" --skip-comments --single-transaction --routines --triggers > "$backup_file"; then
             log::info "Dump de la base de données '$database' réussi"
 
             # Vérification systématique du dump SQL (pas de paramètre nécessaire)
