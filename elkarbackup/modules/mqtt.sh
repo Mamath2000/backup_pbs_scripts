@@ -24,7 +24,7 @@ mqtt::publish_discovery() {
             "elkarbackup_status": {
                 "platform": "sensor",
                 "unique_id": "elkarbackup_status",
-                "object_id": "elkarbackup_status",
+                "default_entity_id": "sensor.elkarbackup_status",
                 "has_entity_name": true,
                 "force_update": true,
                 "name": "Status",
@@ -37,7 +37,7 @@ mqtt::publish_discovery() {
             "elkarbackup_duration": {
                 "platform": "sensor",
                 "unique_id": "elkarbackup_duration",
-                "object_id": "elkarbackup_duration",
+                "default_entity_id": "sensor.elkarbackup_duration",
                 "has_entity_name": true,
                 "force_update": true,
                 "name": "Duration",
@@ -51,7 +51,7 @@ mqtt::publish_discovery() {
             "elkarbackup_size": {
                 "platform": "sensor",
                 "unique_id": "elkarbackup_size",
-                "object_id": "elkarbackup_size",
+                "default_entity_id": "sensor.elkarbackup_size",
                 "has_entity_name": true,
                 "force_update": true,
                 "name": "Backup Size",
@@ -65,7 +65,7 @@ mqtt::publish_discovery() {
             "elkarbackup_compression": {
                 "platform": "sensor",
                 "unique_id": "elkarbackup_compression",
-                "object_id": "elkarbackup_compression",
+                "default_entity_id": "sensor.elkarbackup_compression",
                 "has_entity_name": true,
                 "force_update": true,
                 "name": "Compression Ratio",
@@ -79,7 +79,7 @@ mqtt::publish_discovery() {
             "elkarbackup_last_run": {
                 "platform": "sensor",
                 "unique_id": "elkarbackup_last_run",
-                "object_id": "elkarbackup_last_run",
+                "default_entity_id": "sensor.elkarbackup_last_run",
                 "has_entity_name": true,
                 "force_update": true,
                 "name": "Last Backup",
@@ -91,7 +91,7 @@ mqtt::publish_discovery() {
             "elkarbackup_problem": {
                 "platform": "binary_sensor",
                 "unique_id": "elkarbackup_problem",
-                "object_id": "elkarbackup_problem",
+                "default_entity_id": "binary_sensor.elkarbackup_problem",
                 "has_entity_name": true,
                 "force_update": true,
                 "name": "Backup Problem",
