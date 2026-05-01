@@ -1,8 +1,6 @@
 services:
   pbs-client:
-    platform: linux/amd64
     build:
       context: .
-    pull_policy: build
     image: proxmox-pbs-client:latest
     network_mode: host
