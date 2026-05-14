@@ -18,22 +18,25 @@ nextcloud::docker::detect_running_container() {
 
 nextcloud::docker::perform_database_dump() {
     local dump_file="${WORK_RUN_DIR}/dumps/${RUN_TIMESTAMP}${FILE_SUFFIX}"
-    local container_tmp="/tmp/${RUN_TIMESTAMP}${FILE_SUFFIX}"
+    local dump_tmp="${dump_file}.tmp"
 
     nextcloud::logs::info "Début du dump de la base de données: $DB_NAME"
 
-    if ! docker exec "$DOCKER_ID" pg_dump -U "$DB_USER" "$DB_NAME" -F p -f "$container_tmp"; then
+    rm -f "$dump_tmp"
+
+    if ! docker exec "$DOCKER_ID" pg_dump -U "$DB_USER" "$DB_NAME" -F p > "$dump_tmp"; then
+        rm -f "$dump_tmp"
         nextcloud::logs::error "Échec du dump de la base de données '$DB_NAME'"
         return 1
     fi
 
-    if ! docker cp "${DOCKER_ID}:${container_tmp}" "$dump_file"; then
-        nextcloud::logs::error "Échec de la copie du dump PostgreSQL"
-        docker exec "$DOCKER_ID" rm -f "$container_tmp" >/dev/null 2>&1 || true
+    if [[ ! -s "$dump_tmp" ]]; then
+        rm -f "$dump_tmp"
+        nextcloud::logs::error "Dump PostgreSQL vide pour '$DB_NAME'"
         return 1
     fi
 
-    docker exec "$DOCKER_ID" rm -f "$container_tmp" >/dev/null 2>&1 || true
+    mv "$dump_tmp" "$dump_file"
     nextcloud::logs::info "Dump créé: $dump_file"
 }
 
