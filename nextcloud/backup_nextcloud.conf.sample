@@ -20,7 +20,10 @@ NEXTCLOUD_CONFIG_PATH="/var/www/html/config/config.php"
 
 # ===================== NEXTCLOUD (données) =====================
 NEXTCLOUD_DATA_ROOT="/mnt/user/ncdata"
-NEXTCLOUD_DATA_PATH="/mnt/user/ncdata"
+# Les répertoires appdata_* et updater-/update- sont recherchés sous NEXTCLOUD_DATA_ROOT.
+# Doit pointer vers le dossier qui contient un sous-répertoire par utilisateur.
+NEXTCLOUD_DATA_PATH="/mnt/user/ncdata/data"
+# Sert de préfixe pour les archives générées: nextcloud-data-<utilisateur>.pxar
 NEXTCLOUD_DATA_ARCHIVE_NAME="nextcloud-data.pxar"
 
 # ===================== PBS (Proxmox Backup Server) =====================

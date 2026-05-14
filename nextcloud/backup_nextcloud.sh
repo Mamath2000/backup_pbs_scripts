@@ -45,8 +45,10 @@ EOF
     exit 0
 }
 
+
 # Parse des arguments
 PBS_DATASTORE_ARG=""
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         --backup)
@@ -74,6 +76,7 @@ while [[ $# -gt 0 ]]; do
             show_usage
             ;;
         *)
+
             echo "Erreur: Argument inconnu '$1'"
             echo "Utilisez --help pour voir les options disponibles"
             exit 1
@@ -507,6 +510,112 @@ check_pbs_connection() {
     return $test_result
 }
 
+sanitize_archive_component() {
+    printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g'
+}
+
+resolve_nextcloud_data_users_path() {
+    local data_path="$1"
+    local trimmed_path="${data_path%/}"
+
+    if [[ -z "$trimmed_path" ]]; then
+        printf '%s\n' ""
+        return 0
+    fi
+
+    if [[ "$(basename "$trimmed_path")" == "data" ]]; then
+        printf '%s\n' "$trimmed_path"
+        return 0
+    fi
+
+    if [[ -d "$trimmed_path/data" ]]; then
+        printf '%s\n' "$trimmed_path/data"
+        return 0
+    fi
+
+    printf '%s\n' "$trimmed_path"
+}
+
+resolve_nextcloud_data_root_path() {
+    local users_path="$1"
+    local data_root="${NEXTCLOUD_DATA_ROOT:-}"
+
+    if [[ -n "$data_root" ]]; then
+        printf '%s\n' "${data_root%/}"
+        return 0
+    fi
+
+    printf '%s\n' "$(dirname "$users_path")"
+}
+
+append_data_archive_spec() {
+    local source_dir="$1"
+    local archive_base="$2"
+    local logical_name="$3"
+    local -n extra_mounts_ref="$4"
+    local -n backup_specs_ref="$5"
+    local -n seen_archives_ref="$6"
+
+    local archive_component archive_name mount_target
+    archive_component="$(sanitize_archive_component "$logical_name")"
+    [[ -z "$archive_component" ]] && archive_component="data"
+
+    archive_name="${archive_base}-${archive_component}.pxar"
+    if [[ -n "${seen_archives_ref[$archive_name]:-}" ]]; then
+        return 0
+    fi
+
+    mount_target="/ncdata-${#backup_specs_ref[@]}"
+    extra_mounts_ref+=("-v" "${source_dir}:${mount_target}:ro")
+    backup_specs_ref+=("${archive_name}:${mount_target}")
+    seen_archives_ref["$archive_name"]=1
+
+    log_info "Inclusion des données Nextcloud: ${source_dir} -> ${archive_name}"
+}
+
+build_nextcloud_data_backup_specs() {
+    local data_path="$1"
+    local data_archive_name="$2"
+    local -n extra_mounts_ref="$3"
+    local -n backup_specs_ref="$4"
+
+    local users_path
+    users_path="$(resolve_nextcloud_data_users_path "$data_path")"
+
+    if [[ ! -d "$users_path" ]]; then
+        log_error "NEXTCLOUD_DATA_PATH n'existe pas ou n'est pas un répertoire exploitable: $data_path"
+        return 1
+    fi
+
+    local data_root
+    data_root="$(resolve_nextcloud_data_root_path "$users_path")"
+    local archive_base="${data_archive_name%.pxar}"
+    local -A seen_archives=()
+    local -a user_dirs=()
+    local -a special_dirs=()
+    local user_dir special_dir
+
+    mapfile -t user_dirs < <(find "$users_path" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
+
+    if [[ ${#user_dirs[@]} -gt 0 ]]; then
+        log_info "Inclusion des données Nextcloud par sous-répertoire utilisateur dans $users_path (${#user_dirs[@]} archive(s) candidates)"
+        for user_dir in "${user_dirs[@]}"; do
+            append_data_archive_spec "${users_path}/${user_dir}" "$archive_base" "$user_dir" extra_mounts_ref backup_specs_ref seen_archives
+        done
+    else
+        log_warn "Aucun sous-répertoire utilisateur trouvé dans $users_path"
+    fi
+
+    if [[ -d "$data_root" ]]; then
+        mapfile -t special_dirs < <(find "$data_root" -mindepth 1 -maxdepth 1 -type d \( -name 'appdata_*' -o -name 'updater-*' -o -name 'update-*' \) -printf '%f\n' | sort)
+        for special_dir in "${special_dirs[@]}"; do
+            append_data_archive_spec "${data_root}/${special_dir}" "$archive_base" "$special_dir" extra_mounts_ref backup_specs_ref seen_archives
+        done
+    fi
+
+    return 0
+}
+
 pbs_run_backup() {
     local staging_dir="$1"
     local archive_name="${PBS_ARCHIVE_NAME:-nextcloud-aio.pxar}"
@@ -534,7 +643,7 @@ pbs_run_backup() {
     fi
 
     if [[ -n "$data_path" ]]; then
-        log_info "Inclusion des données Nextcloud: $data_path -> $data_archive_name"
+        log_info "Préparation des données Nextcloud depuis: $data_path"
     fi
 
     if [[ -z "${PBS_REPOSITORY:-}" ]]; then
@@ -557,11 +666,7 @@ pbs_run_backup() {
     fi
 
     if [[ -n "$data_path" ]]; then
-        if [[ -d "$data_path" ]]; then
-            extra_mounts+=("-v" "${data_path}:/ncdata:ro")
-            backup_specs+=("${data_archive_name}:/ncdata")
-        else
-            log_error "NEXTCLOUD_DATA_PATH n'existe pas ou n'est pas un répertoire: $data_path"
+        if ! build_nextcloud_data_backup_specs "$data_path" "$data_archive_name" extra_mounts backup_specs; then
             return 1
         fi
     fi
