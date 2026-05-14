@@ -9,12 +9,14 @@ WORK_BASE_DIR="/mnt/user/docker/nextcloud-aio/backup-nextcloud2"
 
 # ===================== DUMP =====================
 DUMP_BACKUP_NAME="nextcloud-aio-dumps"
+DUMP_DATASTORE="ds0"
 FILE_SUFFIX="_nextcloud_backup.sql"
 
 # ===================== CONF =====================
 NEXTCLOUD_VOLUME_NAME="nextcloud_aio_nextcloud"
 NEXTCLOUD_CONFIG_PATH="/var/www/html/config/config.php"
 CONF_BACKUP_NAME="nextcloud-aio-config"
+CONF_DATASTORE="ds0"
 
 # Fichiers/répertoires de configuration à copier dans le bundle de conf local.
 CONF_PATHS=(
@@ -27,6 +29,7 @@ CONF_PATHS=(
 CONF_SHARED_DATA_ROOTS=(
     "/mnt/user/ncdata/data"
 )
+SHARED_DATA_DATASTORE="ds0"
 
 # ===================== USER =====================
 USER_BACKUP_NAME_PREFIX="nextcloud-aio-user"

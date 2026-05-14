@@ -30,7 +30,10 @@ nextcloud::config::load() {
 
     FILE_SUFFIX="${FILE_SUFFIX:-_nextcloud_backup.sql}"
     DUMP_BACKUP_NAME="${DUMP_BACKUP_NAME:-nextcloud-aio-dumps}"
+    DUMP_DATASTORE="${DUMP_DATASTORE:-}"
     CONF_BACKUP_NAME="${CONF_BACKUP_NAME:-nextcloud-aio-config}"
+    CONF_DATASTORE="${CONF_DATASTORE:-}"
+    SHARED_DATA_DATASTORE="${SHARED_DATA_DATASTORE:-}"
     USER_BACKUP_NAME_PREFIX="${USER_BACKUP_NAME_PREFIX:-nextcloud-aio-user}"
 
     if [[ ${#USER_BACKUPS[@]} -eq 0 ]]; then

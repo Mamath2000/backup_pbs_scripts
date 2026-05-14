@@ -33,6 +33,9 @@ config_file=${NEXTCLOUD_CONFIG_PATH}
 conf_paths=$(IFS=';'; echo "${CONF_PATHS[*]}")
 shared_data_roots=$(IFS=';'; echo "${CONF_SHARED_DATA_ROOTS[*]}")
 user_backups=$(IFS=';'; echo "${USER_BACKUPS[*]}")
+dump_datastore=${DUMP_DATASTORE}
+conf_datastore=${CONF_DATASTORE}
+shared_data_datastore=${SHARED_DATA_DATASTORE}
 EOF
 }
 
@@ -57,6 +60,7 @@ nextcloud::jobs::run_cli_backup() {
     else
         nextcloud::logs::info "Lancement CLI PBS: ${backup_name} -> ${backup_dir}"
     fi
+
     "${cmd[@]}"
 }
 
@@ -114,7 +118,7 @@ nextcloud::jobs::run_shared_data_backups() {
             shared_name+="-$((root_index + 1))"
         fi
 
-        nextcloud::jobs::run_cli_backup "$shared_name" "$shared_root_path" "" "${excludes[@]}"
+        nextcloud::jobs::run_cli_backup "$shared_name" "$shared_root_path" "$SHARED_DATA_DATASTORE" "${excludes[@]}"
         root_index=$((root_index + 1))
     done
 }

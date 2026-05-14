@@ -7,8 +7,8 @@ nextcloud::runner::run_backup() {
     nextcloud::docker::perform_database_dump
     nextcloud::jobs::build_conf_bundle
 
-    nextcloud::jobs::run_cli_backup "$DUMP_BACKUP_NAME" "${WORK_RUN_DIR}/dumps" ""
-    nextcloud::jobs::run_cli_backup "$CONF_BACKUP_NAME" "${WORK_RUN_DIR}/conf" ""
+    nextcloud::jobs::run_cli_backup "$DUMP_BACKUP_NAME" "${WORK_RUN_DIR}/dumps" "$DUMP_DATASTORE"
+    nextcloud::jobs::run_cli_backup "$CONF_BACKUP_NAME" "${WORK_RUN_DIR}/conf" "$CONF_DATASTORE"
     nextcloud::jobs::run_shared_data_backups
     nextcloud::jobs::run_user_backups
 
