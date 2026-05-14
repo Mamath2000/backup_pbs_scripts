@@ -4,7 +4,9 @@ logs::init() {
     mkdir -p "${SCRIPT_DIR}/logs"
     local safe_name
     safe_name="$(sanitize_name "${BACKUP_NAME:-global}")"
-    LOG_FILE="${SCRIPT_DIR}/logs/backup_${safe_name}.log"
+    local log_prefix
+    log_prefix="${LOG_PREFIX:-backup}"
+    LOG_FILE="${SCRIPT_DIR}/logs/${log_prefix}_${safe_name}.log"
     exec > >(tee -a "$LOG_FILE") 2>&1
 }
 

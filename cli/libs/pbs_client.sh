@@ -1,5 +1,27 @@
 #!/usr/bin/env bash
 
+declare -a PBS_RUN_MOUNTS=()
+
+pbs::ensure_image() {
+    if [[ "$PBS_CLIENT_MODE" != "docker" ]]; then
+        return 0
+    fi
+
+    if docker image inspect "$PBS_DOCKER_IMAGE" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local build_script="${SCRIPT_DIR}/../pbs_client/build_pbs_client.sh"
+
+    if [[ ! -f "$build_script" ]]; then
+        logs::error "Image PBS absente et script de build introuvable: $build_script"
+        return 1
+    fi
+
+    logs::warn "Image PBS absente, construction via ${build_script}"
+    bash "$build_script"
+}
+
 pbs::build_repository_full() {
     local datastore="${PBS_DATASTORE_ARG:-${PBS_DATASTORE_DEFAULT:-backup}}"
     PBS_REPOSITORY_FULL="${PBS_REPOSITORY}:${datastore}"
@@ -41,8 +63,42 @@ pbs::run_apt() {
         "${EXTRA_ARGS[@]}"
 }
 
+pbs::run_command() {
+    local -a cmd=("$@")
+    local -a run_mounts=("${PBS_RUN_MOUNTS[@]}")
+
+    if [[ "$PBS_CLIENT_MODE" == "docker" ]]; then
+        pbs::ensure_image || return 1
+
+        docker run --rm --network host \
+            "${run_mounts[@]}" \
+            -e "PBS_REPOSITORY=${PBS_REPOSITORY_FULL}" \
+            ${PBS_PASSWORD:+-e "PBS_PASSWORD=${PBS_PASSWORD}"} \
+            ${PBS_PASSWORD_FILE:+-e "PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}"} \
+            ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
+            ${PROXMOX_OUTPUT_NO_BORDER:+-e "PROXMOX_OUTPUT_NO_BORDER=${PROXMOX_OUTPUT_NO_BORDER}"} \
+            ${PROXMOX_OUTPUT_NO_HEADER:+-e "PROXMOX_OUTPUT_NO_HEADER=${PROXMOX_OUTPUT_NO_HEADER}"} \
+            ${PROXMOX_OUTPUT_FORMAT:+-e "PROXMOX_OUTPUT_FORMAT=${PROXMOX_OUTPUT_FORMAT}"} \
+            "$PBS_DOCKER_IMAGE" \
+            "${cmd[@]}"
+        return $?
+    fi
+
+    local -a env_vars=()
+    [[ -n "${PBS_FINGERPRINT:-}" ]] && env_vars+=("PBS_FINGERPRINT=${PBS_FINGERPRINT}")
+    [[ -n "${PBS_PASSWORD:-}" ]] && env_vars+=("PBS_PASSWORD=${PBS_PASSWORD}")
+    [[ -n "${PBS_PASSWORD_FILE:-}" ]] && env_vars+=("PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}")
+    [[ -n "${PROXMOX_OUTPUT_NO_BORDER:-}" ]] && env_vars+=("PROXMOX_OUTPUT_NO_BORDER=${PROXMOX_OUTPUT_NO_BORDER}")
+    [[ -n "${PROXMOX_OUTPUT_NO_HEADER:-}" ]] && env_vars+=("PROXMOX_OUTPUT_NO_HEADER=${PROXMOX_OUTPUT_NO_HEADER}")
+    [[ -n "${PROXMOX_OUTPUT_FORMAT:-}" ]] && env_vars+=("PROXMOX_OUTPUT_FORMAT=${PROXMOX_OUTPUT_FORMAT}")
+
+    env "${env_vars[@]}" proxmox-backup-client "${cmd[@]}"
+}
+
 pbs::run_docker() {
     logs::info "Exécution proxmox-backup-client (docker)"
+
+    pbs::ensure_image || exit 1
 
     local -a pbs_args=(
         backup
@@ -84,18 +140,8 @@ pbs::check_connection() {
     local check_success=0
     local check_output=""
 
-    if [[ "$PBS_CLIENT_MODE" == "docker" ]]; then
-        check_output=$(docker run --rm --network host \
-            ${PBS_FINGERPRINT:+-e "PBS_FINGERPRINT=${PBS_FINGERPRINT}"} \
-            ${PBS_PASSWORD:+-e "PBS_PASSWORD=${PBS_PASSWORD}"} \
-            ${PBS_PASSWORD_FILE:+-e "PBS_PASSWORD_FILE=${PBS_PASSWORD_FILE}"} \
-            "$PBS_DOCKER_IMAGE" list --repository "$repo_full" "${ns_arg[@]}" 2>&1) && check_success=1
-    else
-        check_output=$(env ${PBS_FINGERPRINT:+PBS_FINGERPRINT="$PBS_FINGERPRINT"} \
-            ${PBS_PASSWORD:+PBS_PASSWORD="$PBS_PASSWORD"} \
-            ${PBS_PASSWORD_FILE:+PBS_PASSWORD_FILE="$PBS_PASSWORD_FILE"} \
-            proxmox-backup-client list --repository "$repo_full" "${ns_arg[@]}" 2>&1) && check_success=1
-    fi
+    PBS_REPOSITORY_FULL="$repo_full"
+    check_output=$(pbs::run_command list --repository "$repo_full" "${ns_arg[@]}" 2>&1) && check_success=1
 
     echo -e "\n--- Résultat du test PBS ---"
     echo "$check_output"
