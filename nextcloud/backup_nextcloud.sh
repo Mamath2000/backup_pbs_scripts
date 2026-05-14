@@ -559,23 +559,23 @@ append_data_archive_spec() {
     local source_dir="$1"
     local archive_base="$2"
     local logical_name="$3"
-    local -n extra_mounts_ref="$4"
-    local -n backup_specs_ref="$5"
-    local -n seen_archives_ref="$6"
+    local -n mount_list_out="$4"
+    local -n backup_spec_list_out="$5"
+    local -n seen_archive_map="$6"
 
     local archive_component archive_name mount_target
     archive_component="$(sanitize_archive_component "$logical_name")"
     [[ -z "$archive_component" ]] && archive_component="data"
 
     archive_name="${archive_base}-${archive_component}.pxar"
-    if [[ -n "${seen_archives_ref[$archive_name]:-}" ]]; then
+    if [[ -n "${seen_archive_map[$archive_name]:-}" ]]; then
         return 0
     fi
 
-    mount_target="/ncdata-${#backup_specs_ref[@]}"
-    extra_mounts_ref+=("-v" "${source_dir}:${mount_target}:ro")
-    backup_specs_ref+=("${archive_name}:${mount_target}")
-    seen_archives_ref["$archive_name"]=1
+    mount_target="/ncdata-${#backup_spec_list_out[@]}"
+    mount_list_out+=("-v" "${source_dir}:${mount_target}:ro")
+    backup_spec_list_out+=("${archive_name}:${mount_target}")
+    seen_archive_map["$archive_name"]=1
 
     log_info "Inclusion des données Nextcloud: ${source_dir} -> ${archive_name}"
 }
@@ -583,8 +583,8 @@ append_data_archive_spec() {
 build_nextcloud_data_backup_specs() {
     local data_path="$1"
     local data_archive_name="$2"
-    local -n extra_mounts_ref="$3"
-    local -n backup_specs_ref="$4"
+    local -n mount_list_out="$3"
+    local -n backup_spec_list_out="$4"
 
     local users_path
     users_path="$(resolve_nextcloud_data_users_path "$data_path")"
@@ -607,7 +607,7 @@ build_nextcloud_data_backup_specs() {
     if [[ ${#user_dirs[@]} -gt 0 ]]; then
         log_info "Inclusion des données Nextcloud par sous-répertoire utilisateur dans $users_path (${#user_dirs[@]} archive(s) candidates)"
         for user_dir in "${user_dirs[@]}"; do
-            append_data_archive_spec "${users_path}/${user_dir}" "$archive_base" "$user_dir" extra_mounts_ref backup_specs_ref seen_archives
+            append_data_archive_spec "${users_path}/${user_dir}" "$archive_base" "$user_dir" mount_list_out backup_spec_list_out seen_archives
         done
     else
         log_warn "Aucun sous-répertoire utilisateur trouvé dans $users_path"
@@ -616,7 +616,7 @@ build_nextcloud_data_backup_specs() {
     if [[ -d "$data_root" ]]; then
         mapfile -t special_dirs < <(find "$data_root" -mindepth 1 -maxdepth 1 -type d \( -name 'appdata_*' -o -name 'updater-*' -o -name 'update-*' \) -printf '%f\n' | sort)
         for special_dir in "${special_dirs[@]}"; do
-            append_data_archive_spec "${data_root}/${special_dir}" "$archive_base" "$special_dir" extra_mounts_ref backup_specs_ref seen_archives
+            append_data_archive_spec "${data_root}/${special_dir}" "$archive_base" "$special_dir" mount_list_out backup_spec_list_out seen_archives
         done
     fi
 
