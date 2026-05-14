@@ -181,10 +181,17 @@ BACKUP_FILES=()
 # Obtenir l'ID du conteneur Docker (sauf en mode check)
 DOCKER_ID=""
 if [[ "$MODE" != "check" ]]; then
-    DOCKER_ID=$(docker ps --no-trunc -aqf name="$DOCKER_CONTAINER_NAME")
+    DOCKER_ID=$(docker ps --no-trunc -qf name="$DOCKER_CONTAINER_NAME" | head -n1)
 
     if [[ -z "$DOCKER_ID" ]]; then
-        echo "ERREUR: Conteneur Docker '$DOCKER_CONTAINER_NAME' non trouvé"
+        stopped_docker_id=""
+        stopped_docker_id=$(docker ps --no-trunc -aqf name="$DOCKER_CONTAINER_NAME" | head -n1)
+
+        if [[ -n "$stopped_docker_id" ]]; then
+            echo "ERREUR: Conteneur Docker '$DOCKER_CONTAINER_NAME' trouvé mais non démarré"
+        else
+            echo "ERREUR: Conteneur Docker '$DOCKER_CONTAINER_NAME' non trouvé"
+        fi
         rm -f "$LOCK_FILE"
         exit 1
     fi
