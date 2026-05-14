@@ -52,6 +52,7 @@ PBS_PASSWORD="your_pbs_password_here"
 # Fingerprint du serveur PBS (recommandé pour sécurité)
 # Récupérez-le avec: openssl s_client -connect <pbs_host>:8007 < /dev/null | openssl x509 -noout -fingerprint -sha256
 PBS_FINGERPRINT=""
+PBS_CLIENT_MODE="docker"
 
 # Identifiant/type du snapshot côté PBS
 PBS_BACKUP_ID="elkarbackup"

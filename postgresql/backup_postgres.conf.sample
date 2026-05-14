@@ -37,7 +37,8 @@ TEST_DUMMY_SIZE_MB=50                # Taille dummy en MB (optionnel, défaut: 5
 # ===================== PBS / PROXMOX BACKUP SERVER =========
 PBS_ENABLED=true                     # true/false (optionnel, défaut: true)
 PBS_REPOSITORY="backup@pbs.lan"     # user@host (obligatoire si PBS_ENABLED)
-PBS_DATASTORE="ds1"                 # Datastore PBS (obligatoire si PBS_ENABLED)
+PBS_DATASTORE_DEFAULT="ds1"         # Datastore PBS (obligatoire si PBS_ENABLED)
+# PBS_DATASTORE="ds1"               # Alias historique accepté pour compatibilité
 PBS_NAMESPACE=""                    # Namespace PBS (optionnel)
 PBS_CLIENT_MODE="apt"               # apt|docker (optionnel, défaut: apt)
 PBS_CLIENT="proxmox-backup-client"  # Binaire PBS (optionnel, utilisé si mode apt)

@@ -19,4 +19,7 @@ config::load() {
     fi
 
     source "$config_file"
+
+    PBS_DATASTORE_DEFAULT="${PBS_DATASTORE_DEFAULT:-${PBS_DATASTORE:-}}"
+    PBS_DATASTORE="${PBS_DATASTORE:-$PBS_DATASTORE_DEFAULT}"
 }

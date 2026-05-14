@@ -11,8 +11,8 @@ source "${SCRIPT_DIR}/libs/pbs_client.sh"
 restore::usage() {
     cat <<EOF
 Usage:
-    $(basename "$0") "nom-backup" -t /repertoire/cible [--snapshot SNAPSHOT] [--archive ARCHIVE] [--datastore NAME] [--namespace NAME] [--config FICHIER]
-    $(basename "$0") "nom-backup" [--snapshot SNAPSHOT] [--archive ARCHIVE] --list-subdirs [--datastore NAME] [--namespace NAME] [--config FICHIER]
+    $(basename "$0") [nom-backup] -t /repertoire/cible [--snapshot SNAPSHOT] [--archive ARCHIVE] [--datastore NAME] [--namespace NAME] [--config FICHIER]
+    $(basename "$0") [nom-backup] [--snapshot SNAPSHOT] [--archive ARCHIVE] --list-subdirs [--datastore NAME] [--namespace NAME] [--config FICHIER]
 
 Exemples:
   $(basename "$0") host-prod -t /srv/restore
@@ -20,6 +20,7 @@ Exemples:
     $(basename "$0") host-prod -t /srv/restore --subdir etc
     $(basename "$0") host-prod --snapshot host/host-prod/2026-05-14T08:00:00Z --archive root.pxar --list-subdirs
     $(basename "$0") host-prod -t /srv/restore --config /chemin/vers/backup.conf
+    $(basename "$0") -t /srv/restore --config /chemin/vers/backup_nextcloud.conf
 EOF
 }
 
@@ -94,12 +95,6 @@ restore::parse() {
         shift
     done
 
-    if [[ -z "$BACKUP_NAME" ]]; then
-        logs::error "Le nom du backup est obligatoire."
-        restore::usage
-        exit 1
-    fi
-
     if [[ "$LIST_SUBDIRS" != "true" && -z "$RESTORE_TARGET" ]]; then
         logs::error "Le répertoire cible est obligatoire (-t|--target)."
         restore::usage
@@ -124,6 +119,54 @@ restore::parse() {
 
     if [[ -n "$CONFIG_FILE" && ! -f "$CONFIG_FILE" ]]; then
         logs::error "Fichier de configuration introuvable: $CONFIG_FILE"
+        exit 1
+    fi
+}
+
+restore::sanitize_backup_component() {
+    printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g'
+}
+
+restore::default_backup_name_from_config() {
+    if [[ -n "${PBS_BACKUP_ID:-}" ]]; then
+        printf '%s\n' "$PBS_BACKUP_ID"
+        return 0
+    fi
+
+    if [[ -n "${BACKUP_MODE:-}" || -n "${DB_HOST:-}" || -n "${DB_PORT:-}" ]]; then
+        local host
+        host="$(hostname -s 2>/dev/null || hostname)"
+        host="$(restore::sanitize_backup_component "$host")"
+
+        case "${BACKUP_MODE:-cluster}" in
+            cluster)
+                printf '%s\n' "${host}_full"
+                return 0
+                ;;
+            perdb)
+                local targets="${BACKUP_TARGETS:-}"
+                if [[ -n "$targets" && "$targets" != *,* ]]; then
+                    printf '%s\n' "${host}_$(restore::sanitize_backup_component "$targets")"
+                    return 0
+                fi
+                ;;
+        esac
+    fi
+
+    printf '%s\n' ""
+}
+
+restore::apply_config_defaults() {
+    PBS_DATASTORE_DEFAULT="${PBS_DATASTORE_DEFAULT:-${PBS_DATASTORE:-backup}}"
+    PBS_DATASTORE="${PBS_DATASTORE:-$PBS_DATASTORE_DEFAULT}"
+
+    if [[ -z "$BACKUP_NAME" ]]; then
+        BACKUP_NAME="$(restore::default_backup_name_from_config)"
+    fi
+
+    if [[ -z "$BACKUP_NAME" ]]; then
+        logs::error "Le nom du backup est obligatoire si la configuration ne fournit pas de PBS_BACKUP_ID exploitable."
+        restore::usage
         exit 1
     fi
 }
@@ -520,6 +563,7 @@ main() {
     LOG_PREFIX="restore"
 
     config::load
+    restore::apply_config_defaults
     logs::init
     pbs::build_repository_full
     restore::build_repo_args

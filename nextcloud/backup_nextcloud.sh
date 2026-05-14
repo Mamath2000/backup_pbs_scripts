@@ -118,7 +118,8 @@ source "$CONFIG_FILE"
 # Construction de la chaîne PBS_REPOSITORY complète avec le datastore
 # Si PBS_REPOSITORY contient déjà un datastore (ex: user@realm@host:ds), on l'utilise tel quel
 # sauf si --datastore est passé en argument
-PBS_DATASTORE="${PBS_DATASTORE_DEFAULT:-}"
+PBS_DATASTORE_DEFAULT="${PBS_DATASTORE_DEFAULT:-${PBS_DATASTORE:-}}"
+PBS_DATASTORE="${PBS_DATASTORE:-$PBS_DATASTORE_DEFAULT}"
 if [[ -n "$PBS_DATASTORE_ARG" ]]; then
     # --datastore CLI a priorité absolue : on strip l'éventuel datastore du repo et on ajoute le bon
     PBS_REPOSITORY_FULL="${PBS_REPOSITORY%%:*}:${PBS_DATASTORE_ARG}"

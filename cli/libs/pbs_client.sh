@@ -24,7 +24,14 @@ pbs::ensure_image() {
 
 pbs::build_repository_full() {
     local datastore="${PBS_DATASTORE_ARG:-${PBS_DATASTORE_DEFAULT:-backup}}"
-    PBS_REPOSITORY_FULL="${PBS_REPOSITORY}:${datastore}"
+
+    if [[ -n "${PBS_DATASTORE_ARG:-}" ]]; then
+        PBS_REPOSITORY_FULL="${PBS_REPOSITORY%%:*}:${datastore}"
+    elif [[ "$PBS_REPOSITORY" == *:* ]]; then
+        PBS_REPOSITORY_FULL="$PBS_REPOSITORY"
+    else
+        PBS_REPOSITORY_FULL="${PBS_REPOSITORY}:${datastore}"
+    fi
 }
 
 pbs::build_specs() {

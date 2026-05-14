@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 
 config::load() {
-    CONFIG_FILE="${CONFIG_FILE:-${SCRIPT_DIR}/backup.conf}"
+    local default_config="${SCRIPT_DIR}/backup.conf"
+    local explicit_config="${CONFIG_FILE:-}"
+
+    CONFIG_FILE="${explicit_config:-$default_config}"
 
     if [[ ! -f "$CONFIG_FILE" ]]; then
         echo "ERREUR: Fichier de configuration introuvable: $CONFIG_FILE" >&2
@@ -11,8 +14,12 @@ config::load() {
     local conf_perm
     conf_perm=$(stat -c "%a" "$CONFIG_FILE")
     if [[ "$conf_perm" != "600" ]]; then
-        echo "ERREUR: Les droits sur $CONFIG_FILE doivent être 600 (actuellement $conf_perm)" >&2
-        exit 1
+        if [[ -n "$explicit_config" && "$CONFIG_FILE" != "$default_config" ]]; then
+            echo "WARN: Les droits sur $CONFIG_FILE sont $conf_perm (600 recommandé pour un fichier contenant des secrets)" >&2
+        else
+            echo "ERREUR: Les droits sur $CONFIG_FILE doivent être 600 (actuellement $conf_perm)" >&2
+            exit 1
+        fi
     fi
 
     # shellcheck source=/dev/null
@@ -22,7 +29,8 @@ config::load() {
     PBS_CLIENT_MODE="${PBS_CLIENT_MODE:-apt}"
     PBS_DOCKER_IMAGE="${PBS_DOCKER_IMAGE:-proxmox-pbs-client:latest}"
     PBS_BACKUP_TYPE="${PBS_BACKUP_TYPE:-host}"
-    PBS_DATASTORE_DEFAULT="${PBS_DATASTORE_DEFAULT:-backup}"
+    PBS_DATASTORE_DEFAULT="${PBS_DATASTORE_DEFAULT:-${PBS_DATASTORE:-backup}}"
+    PBS_DATASTORE="${PBS_DATASTORE:-$PBS_DATASTORE_DEFAULT}"
 
     if [[ -z "${PBS_PASSWORD:-}" && -z "${PBS_PASSWORD_FILE:-}" ]]; then
         logs::error "PBS_PASSWORD ou PBS_PASSWORD_FILE doit être défini dans la conf"
