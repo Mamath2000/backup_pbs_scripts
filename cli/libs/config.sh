@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 config::load() {
-    CONFIG_FILE="${SCRIPT_DIR}/backup.conf"
+    CONFIG_FILE="${CONFIG_FILE:-${SCRIPT_DIR}/backup.conf}"
 
     if [[ ! -f "$CONFIG_FILE" ]]; then
         echo "ERREUR: Fichier de configuration introuvable: $CONFIG_FILE" >&2

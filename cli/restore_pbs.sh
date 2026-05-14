@@ -11,14 +11,15 @@ source "${SCRIPT_DIR}/libs/pbs_client.sh"
 restore::usage() {
     cat <<EOF
 Usage:
-  $(basename "$0") "nom-backup" -t /repertoire/cible [--snapshot SNAPSHOT] [--archive ARCHIVE] [--datastore NAME] [--namespace NAME]
-    $(basename "$0") "nom-backup" [--snapshot SNAPSHOT] [--archive ARCHIVE] --list-subdirs [--datastore NAME] [--namespace NAME]
+    $(basename "$0") "nom-backup" -t /repertoire/cible [--snapshot SNAPSHOT] [--archive ARCHIVE] [--datastore NAME] [--namespace NAME] [--config FICHIER]
+    $(basename "$0") "nom-backup" [--snapshot SNAPSHOT] [--archive ARCHIVE] --list-subdirs [--datastore NAME] [--namespace NAME] [--config FICHIER]
 
 Exemples:
   $(basename "$0") host-prod -t /srv/restore
   $(basename "$0") host-prod -t /srv/restore --snapshot host/host-prod/2026-05-14T08:00:00Z
     $(basename "$0") host-prod -t /srv/restore --subdir etc
     $(basename "$0") host-prod --snapshot host/host-prod/2026-05-14T08:00:00Z --archive root.pxar --list-subdirs
+    $(basename "$0") host-prod -t /srv/restore --config /chemin/vers/backup.conf
 EOF
 }
 
@@ -29,6 +30,7 @@ restore::parse() {
     SELECTED_ARCHIVE=""
     RESTORE_SUBDIR=""
     LIST_SUBDIRS=false
+    CONFIG_FILE=""
     PBS_DATASTORE_ARG=""
     PBS_NAMESPACE_ARG=""
 
@@ -61,6 +63,10 @@ restore::parse() {
             --datastore)
                 shift
                 PBS_DATASTORE_ARG="${1:-}"
+                ;;
+            --config)
+                shift
+                CONFIG_FILE="${1:-}"
                 ;;
             --namespace|--ns)
                 shift
@@ -114,6 +120,11 @@ restore::parse() {
             logs::error "Le sous-répertoire demandé est invalide."
             exit 1
         fi
+    fi
+
+    if [[ -n "$CONFIG_FILE" && ! -f "$CONFIG_FILE" ]]; then
+        logs::error "Fichier de configuration introuvable: $CONFIG_FILE"
+        exit 1
     fi
 }
 
