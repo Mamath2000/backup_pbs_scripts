@@ -3,7 +3,7 @@
 cli::usage() {
     cat <<EOF
 Usage:
-  $(basename "$0") "nom-backup" -d /chemin/unique [-e /chemin/exclu]... [--datastore NAME]
+    $(basename "$0") "nom-backup" -d /chemin/unique [-e /chemin/exclu]... [--datastore NAME] [--namespace NAME]
   $(basename "$0") --check [--datastore NAME] [--namespace NAME]
 EOF
 }
@@ -44,6 +44,7 @@ cli::parse() {
             -d) shift; BACKUP_DIR="${1:-}";;
             -e) shift; EXCLUDES+=("${1:-}");;
             --datastore) shift; PBS_DATASTORE_ARG="${1:-}";;
+            --namespace|--ns) shift; PBS_NAMESPACE_ARG="${1:-}";;
             -h|--help) cli::usage; exit 0;;
             *) logs::error "Argument inconnu : $1"; cli::usage; exit 1;;
         esac

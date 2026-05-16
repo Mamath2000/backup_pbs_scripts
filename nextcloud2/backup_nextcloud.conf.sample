@@ -1,5 +1,6 @@
 # Exemple minimal pour nexcloud2/backup_nextcloud.sh
-# Ce script ne gère plus PBS directement : toute la configuration PBS reste dans cli/backup.conf.
+# Ce script ne gère plus PBS directement : la configuration PBS reste dans cli/backup.conf,
+# sauf le namespace forcé pour ces sauvegardes.
 
 # ===================== BASE =====================
 DOCKER_CONTAINER_NAME="nextcloud-aio-database"
@@ -10,6 +11,7 @@ WORK_BASE_DIR="/mnt/user/docker/nextcloud-aio/backup-nextcloud2"
 # ===================== DUMP =====================
 DUMP_BACKUP_NAME="nextcloud-aio-dumps"
 DUMP_DATASTORE="ds0"
+PBS_NAMESPACE="nextcloud"
 FILE_SUFFIX="_nextcloud_backup.sql"
 
 # ===================== CONF =====================

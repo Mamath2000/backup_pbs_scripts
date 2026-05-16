@@ -31,6 +31,7 @@ config::load() {
     PBS_BACKUP_TYPE="${PBS_BACKUP_TYPE:-host}"
     PBS_DATASTORE_DEFAULT="${PBS_DATASTORE_DEFAULT:-${PBS_DATASTORE:-backup}}"
     PBS_DATASTORE="${PBS_DATASTORE:-$PBS_DATASTORE_DEFAULT}"
+    PBS_NAMESPACE="${PBS_NAMESPACE_ARG:-${PBS_NAMESPACE:-}}"
 
     if [[ -z "${PBS_PASSWORD:-}" && -z "${PBS_PASSWORD_FILE:-}" ]]; then
         logs::error "PBS_PASSWORD ou PBS_PASSWORD_FILE doit être défini dans la conf"

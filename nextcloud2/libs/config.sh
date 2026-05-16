@@ -34,6 +34,7 @@ nextcloud::config::load() {
     CONF_BACKUP_NAME="${CONF_BACKUP_NAME:-nextcloud-aio-config}"
     CONF_DATASTORE="${CONF_DATASTORE:-}"
     SHARED_DATA_DATASTORE="${SHARED_DATA_DATASTORE:-}"
+    PBS_NAMESPACE="${PBS_NAMESPACE:-nextcloud}"
     USER_BACKUP_NAME_PREFIX="${USER_BACKUP_NAME_PREFIX:-nextcloud-aio-user}"
 
     if [[ ${#USER_BACKUPS[@]} -eq 0 ]]; then

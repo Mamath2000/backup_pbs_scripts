@@ -49,14 +49,21 @@ nextcloud::jobs::run_cli_backup() {
     if [[ -n "$datastore" ]]; then
         cmd+=(--datastore "$datastore")
     fi
+    if [[ -n "${PBS_NAMESPACE:-}" ]]; then
+        cmd+=(--namespace "$PBS_NAMESPACE")
+    fi
 
     local exclude
     for exclude in "$@"; do
         cmd+=(-e "$exclude")
     done
 
-    if [[ -n "$datastore" ]]; then
+    if [[ -n "$datastore" && -n "${PBS_NAMESPACE:-}" ]]; then
+        nextcloud::logs::info "Lancement CLI PBS: ${backup_name} -> ${backup_dir} (datastore: ${datastore}, namespace: ${PBS_NAMESPACE})"
+    elif [[ -n "$datastore" ]]; then
         nextcloud::logs::info "Lancement CLI PBS: ${backup_name} -> ${backup_dir} (datastore: ${datastore})"
+    elif [[ -n "${PBS_NAMESPACE:-}" ]]; then
+        nextcloud::logs::info "Lancement CLI PBS: ${backup_name} -> ${backup_dir} (namespace: ${PBS_NAMESPACE})"
     else
         nextcloud::logs::info "Lancement CLI PBS: ${backup_name} -> ${backup_dir}"
     fi
@@ -168,9 +175,9 @@ nextcloud::jobs::cli_check() {
 
     for datastore in "${datastores_to_check[@]}"; do
         if [[ -n "$datastore" ]]; then
-            "$CLI_BACKUP_SCRIPT" --check --datastore "$datastore"
+            "$CLI_BACKUP_SCRIPT" --check --datastore "$datastore" --namespace "$PBS_NAMESPACE"
         else
-            "$CLI_BACKUP_SCRIPT" --check
+            "$CLI_BACKUP_SCRIPT" --check --namespace "$PBS_NAMESPACE"
         fi
     done
 }
