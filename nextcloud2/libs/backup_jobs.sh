@@ -59,6 +59,12 @@ nextcloud::jobs::stage_data_root() {
 
     while IFS= read -r -d '' dir_path; do
         dir_name="$(basename "$dir_path")"
+
+        if [[ "$dir_name" == appdata_* ]]; then
+            nextcloud::logs::info "Répertoire data-root exclu du package config: $dir_name"
+            continue
+        fi
+
         should_copy=false
 
         for pattern in "${DATA_ROOT_INCLUDE_DIRS[@]}"; do
@@ -80,6 +86,22 @@ nextcloud::jobs::stage_data_root() {
         cp -a "$dir_path" "$stage_root/"
         nextcloud::logs::info "Répertoire data-root ajouté: $dir_name"
     done < <(find "$data_root" -mindepth 1 -maxdepth 1 -type d -print0 | sort -z)
+}
+
+nextcloud::jobs::run_appdata_backups() {
+    local data_root
+    data_root="$(nextcloud::tools::resolve_path "$NEXTCLOUD_DATA_ROOT")"
+    nextcloud::tools::require_directory "$data_root"
+
+    local dir_path dir_name safe_name backup_name
+
+    while IFS= read -r -d '' dir_path; do
+        dir_name="$(basename "$dir_path")"
+        safe_name="$(nextcloud::tools::sanitize_component "$dir_name")"
+        backup_name="config-${safe_name}"
+
+        nextcloud::jobs::run_cli_backup "$backup_name" "$dir_path" "$CONFIG_DATASTORE"
+    done < <(find "$data_root" -mindepth 1 -maxdepth 1 -type d -name 'appdata_*' -print0 | sort -z)
 }
 
 nextcloud::jobs::build_config_stage() {

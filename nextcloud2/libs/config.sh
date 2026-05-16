@@ -38,7 +38,6 @@ nextcloud::config::load() {
     if [[ ${#DATA_ROOT_INCLUDE_DIRS[@]} -eq 0 ]]; then
         DATA_ROOT_INCLUDE_DIRS=(
             "admin"
-            "appdata_*"
         )
     fi
 }

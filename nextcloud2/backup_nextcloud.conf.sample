@@ -28,9 +28,9 @@ CONF_PATHS=(
 
 # Répertoires du data root à inclure dans le backup config.
 # Les fichiers à la racine du data root sont toujours copiés.
+# Les répertoires appdata_* sont sauvegardés séparément sur CONFIG_DATASTORE.
 DATA_ROOT_INCLUDE_DIRS=(
     "admin"
-    "appdata_*"
 )
 
 # ===================== USER =====================

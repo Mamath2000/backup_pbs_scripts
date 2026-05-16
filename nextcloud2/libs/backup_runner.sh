@@ -8,6 +8,7 @@ nextcloud::runner::run_backup() {
     nextcloud::jobs::build_config_stage
 
     nextcloud::jobs::run_cli_backup "config" "${WORK_RUN_DIR}/config" "$CONFIG_DATASTORE"
+    nextcloud::jobs::run_appdata_backups
     nextcloud::jobs::run_user_backups
 
     nextcloud::logs::info "Sauvegarde terminée avec succès"
