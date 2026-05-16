@@ -17,11 +17,13 @@ nextcloud::docker::detect_running_container() {
 }
 
 nextcloud::docker::perform_database_dump() {
-    local dump_file="${WORK_RUN_DIR}/dumps/${RUN_TIMESTAMP}${FILE_SUFFIX}"
+    local archive_dir="${WORK_BASE_DIR%/}/dump-archives"
+    local dump_file="${archive_dir}/${RUN_TIMESTAMP}${FILE_SUFFIX}"
     local dump_tmp="${dump_file}.tmp"
 
     nextcloud::logs::info "Début du dump de la base de données: $DB_NAME"
 
+    mkdir -p "$archive_dir"
     rm -f "$dump_tmp"
 
     if ! docker exec "$DOCKER_ID" pg_dump -U "$DB_USER" "$DB_NAME" -F p > "$dump_tmp"; then
@@ -37,13 +39,30 @@ nextcloud::docker::perform_database_dump() {
     fi
 
     mv "$dump_tmp" "$dump_file"
+    CURRENT_DUMP_FILE="$dump_file"
+    nextcloud::docker::prune_dump_archives "$archive_dir"
     nextcloud::logs::info "Dump créé: $dump_file"
 }
 
+nextcloud::docker::prune_dump_archives() {
+    local archive_dir="$1"
+    local keep_count="${MAX_DUMP_ARCHIVES:-5}"
+    local -a dump_files=()
+
+    mapfile -t dump_files < <(find "$archive_dir" -maxdepth 1 -type f -name "*${FILE_SUFFIX}" -printf '%f\n' | sort)
+
+    while [[ ${#dump_files[@]} -gt $keep_count ]]; do
+        rm -f "${archive_dir}/${dump_files[0]}"
+        nextcloud::logs::info "Ancien dump supprimé: ${archive_dir}/${dump_files[0]}"
+        dump_files=("${dump_files[@]:1}")
+    done
+}
+
 nextcloud::docker::export_config_php() {
-    local output_file="${WORK_RUN_DIR}/conf/generated/config.php"
+    local output_file="${1:-${WORK_RUN_DIR}/config/nextcloud/config.php}"
 
     nextcloud::logs::info "Export du fichier config.php depuis le volume Nextcloud"
+    mkdir -p "$(dirname "$output_file")"
     if ! docker run --rm \
         --volume "${NEXTCLOUD_VOLUME_NAME}:/var/www/html:ro" \
         alpine sh -lc "cat '${NEXTCLOUD_CONFIG_PATH}'" > "$output_file"; then

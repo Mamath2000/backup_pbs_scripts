@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-nextcloud::jobs::copy_path_into_conf_stage() {
+nextcloud::jobs::copy_path_into_config_stage() {
     local original_path="$1"
     local source_path
     source_path="$(nextcloud::tools::resolve_path "$original_path")"
@@ -11,32 +11,87 @@ nextcloud::jobs::copy_path_into_conf_stage() {
     fi
 
     local relative_path="${source_path#/}"
-    local destination_parent="${WORK_RUN_DIR}/conf/files/$(dirname "$relative_path")"
+    local destination_parent="${WORK_RUN_DIR}/config/files/$(dirname "$relative_path")"
     mkdir -p "$destination_parent"
     cp -a "$source_path" "$destination_parent/"
-    nextcloud::logs::info "Ajout au bundle de configuration: $source_path"
+    nextcloud::logs::info "Ajout au staging config: $source_path"
 }
 
-nextcloud::jobs::build_conf_bundle() {
-    nextcloud::docker::export_config_php
+nextcloud::jobs::copy_dump_into_config_stage() {
+    if [[ -z "${CURRENT_DUMP_FILE:-}" || ! -f "$CURRENT_DUMP_FILE" ]]; then
+        nextcloud::logs::error "Dump courant introuvable pour le staging config"
+        return 1
+    fi
+
+    cp -a "$CURRENT_DUMP_FILE" "${WORK_RUN_DIR}/config/dump/"
+    nextcloud::logs::info "Dump ajouté au staging config: $CURRENT_DUMP_FILE"
+}
+
+nextcloud::jobs::is_user_backup_path() {
+    local candidate_path
+    candidate_path="$(nextcloud::tools::resolve_path "$1")"
+
+    local user_entry user_path
+    for user_entry in "${USER_BACKUPS[@]}"; do
+        [[ -z "$user_entry" ]] && continue
+        nextcloud::jobs::parse_user_backup_entry "$user_entry"
+        user_path="$(nextcloud::tools::resolve_path "$USER_ENTRY_PATH")"
+        if [[ "$candidate_path" == "$user_path" ]]; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+nextcloud::jobs::stage_data_root() {
+    local data_root
+    data_root="$(nextcloud::tools::resolve_path "$NEXTCLOUD_DATA_ROOT")"
+    nextcloud::tools::require_directory "$data_root"
+
+    local stage_root="${WORK_RUN_DIR}/config/data-root"
+    local file_path dir_path dir_name pattern should_copy
+
+    while IFS= read -r -d '' file_path; do
+        cp -a "$file_path" "$stage_root/"
+        nextcloud::logs::info "Fichier data-root ajouté: $(basename "$file_path")"
+    done < <(find "$data_root" -mindepth 1 -maxdepth 1 -type f -print0 | sort -z)
+
+    while IFS= read -r -d '' dir_path; do
+        dir_name="$(basename "$dir_path")"
+        should_copy=false
+
+        for pattern in "${DATA_ROOT_INCLUDE_DIRS[@]}"; do
+            if [[ "$dir_name" == $pattern ]]; then
+                should_copy=true
+                break
+            fi
+        done
+
+        if [[ "$should_copy" != "true" ]]; then
+            continue
+        fi
+
+        if nextcloud::jobs::is_user_backup_path "$dir_path"; then
+            nextcloud::logs::info "Répertoire data-root ignoré car déjà sauvegardé comme user: $dir_name"
+            continue
+        fi
+
+        cp -a "$dir_path" "$stage_root/"
+        nextcloud::logs::info "Répertoire data-root ajouté: $dir_name"
+    done < <(find "$data_root" -mindepth 1 -maxdepth 1 -type d -print0 | sort -z)
+}
+
+nextcloud::jobs::build_config_stage() {
+    nextcloud::jobs::copy_dump_into_config_stage
+    nextcloud::docker::export_config_php "${WORK_RUN_DIR}/config/nextcloud/config.php"
+    nextcloud::jobs::stage_data_root
 
     local item
     for item in "${CONF_PATHS[@]}"; do
         [[ -z "$item" ]] && continue
-        nextcloud::jobs::copy_path_into_conf_stage "$item"
+        nextcloud::jobs::copy_path_into_config_stage "$item"
     done
-
-    cat > "${WORK_RUN_DIR}/conf/generated/manifest.txt" <<EOF
-run_timestamp=${RUN_TIMESTAMP}
-db_name=${DB_NAME}
-config_file=${NEXTCLOUD_CONFIG_PATH}
-conf_paths=$(IFS=';'; echo "${CONF_PATHS[*]}")
-shared_data_roots=$(IFS=';'; echo "${CONF_SHARED_DATA_ROOTS[*]}")
-user_backups=$(IFS=';'; echo "${USER_BACKUPS[*]}")
-dump_datastore=${DUMP_DATASTORE}
-conf_datastore=${CONF_DATASTORE}
-shared_data_datastore=${SHARED_DATA_DATASTORE}
-EOF
 }
 
 nextcloud::jobs::run_cli_backup() {
@@ -84,52 +139,6 @@ nextcloud::jobs::parse_user_backup_entry() {
     fi
 }
 
-nextcloud::jobs::run_shared_data_backups() {
-    local root_index=0
-    local shared_root shared_root_path shared_name
-
-    for shared_root in "${CONF_SHARED_DATA_ROOTS[@]}"; do
-        [[ -z "$shared_root" ]] && continue
-        shared_root_path="$(nextcloud::tools::resolve_path "$shared_root")"
-        nextcloud::tools::require_directory "$shared_root_path"
-
-        local -a excludes=()
-        local user_entry user_dir_path user_parent_path user_dir_name
-
-        for user_entry in "${USER_BACKUPS[@]}"; do
-            [[ -z "$user_entry" ]] && continue
-            nextcloud::jobs::parse_user_backup_entry "$user_entry"
-            user_dir_path="$(nextcloud::tools::resolve_path "$USER_ENTRY_PATH")"
-            user_parent_path="$(dirname "$user_dir_path")"
-
-            if [[ "$user_parent_path" != "$shared_root_path" ]]; then
-                continue
-            fi
-
-            user_dir_name="$(basename "$user_dir_path")"
-            excludes+=("/${user_dir_name}")
-        done
-
-        local root_file_count
-        root_file_count="$(find "$shared_root_path" -mindepth 1 -maxdepth 1 -type f | wc -l | tr -d '[:space:]')"
-        local root_dir_count
-        root_dir_count="$(find "$shared_root_path" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]')"
-        if [[ "$root_dir_count" == "0" && "$root_file_count" == "0" ]]; then
-            nextcloud::logs::warn "Aucun contenu partagé à sauvegarder dans $shared_root_path"
-            root_index=$((root_index + 1))
-            continue
-        fi
-
-        shared_name="${CONF_BACKUP_NAME}-shared-data"
-        if [[ ${#CONF_SHARED_DATA_ROOTS[@]} -gt 1 ]]; then
-            shared_name+="-$((root_index + 1))"
-        fi
-
-        nextcloud::jobs::run_cli_backup "$shared_name" "$shared_root_path" "$SHARED_DATA_DATASTORE" "${excludes[@]}"
-        root_index=$((root_index + 1))
-    done
-}
-
 nextcloud::jobs::run_user_backups() {
     local user_entry user_dir_path user_name safe_user backup_name datastore
 
@@ -155,7 +164,7 @@ nextcloud::jobs::cli_check() {
     local -a datastores_to_check=()
     local datastore user_entry found
 
-    datastores_to_check+=("")
+    datastores_to_check+=("${CONFIG_DATASTORE:-}")
     for user_entry in "${USER_BACKUPS[@]}"; do
         [[ -z "$user_entry" ]] && continue
         nextcloud::jobs::parse_user_backup_entry "$user_entry"

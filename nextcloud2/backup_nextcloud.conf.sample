@@ -7,31 +7,31 @@ DOCKER_CONTAINER_NAME="nextcloud-aio-database"
 DB_USER="nextcloud"
 DB_NAME="nextcloud_database"
 WORK_BASE_DIR="/mnt/user/docker/nextcloud-aio/backup-nextcloud2"
+NEXTCLOUD_DATA_ROOT="/mnt/user/ncdata/data"
+
+# ===================== PBS =====================
+CONFIG_DATASTORE="ds0"
+PBS_NAMESPACE="nextcloud"
 
 # ===================== DUMP =====================
-DUMP_BACKUP_NAME="nextcloud-aio-dumps"
-DUMP_DATASTORE="ds0"
-PBS_NAMESPACE="nextcloud"
+MAX_DUMP_ARCHIVES=5
 FILE_SUFFIX="_nextcloud_backup.sql"
 
 # ===================== CONF =====================
 NEXTCLOUD_VOLUME_NAME="nextcloud_aio_nextcloud"
 NEXTCLOUD_CONFIG_PATH="/var/www/html/config/config.php"
-CONF_BACKUP_NAME="nextcloud-aio-config"
-CONF_DATASTORE="ds0"
 
-# Fichiers/répertoires de configuration à copier dans le bundle de conf local.
+# Fichiers locaux à copier dans le staging config avant l'envoi PBS.
 CONF_PATHS=(
     "/mnt/user/docker/nextcloud-aio/docker-compose.yml"
-    "/mnt/user/docker/nextcloud-aio/.env"
 )
 
-# Racines contenant les données Nextcloud non-utilisateur à sauvegarder via CLI.
-# Le script exclut automatiquement les répertoires listés dans USER_BACKUPS.
-CONF_SHARED_DATA_ROOTS=(
-    "/mnt/user/ncdata/data"
+# Répertoires du data root à inclure dans le backup config.
+# Les fichiers à la racine du data root sont toujours copiés.
+DATA_ROOT_INCLUDE_DIRS=(
+    "admin"
+    "appdata_*"
 )
-SHARED_DATA_DATASTORE="ds0"
 
 # ===================== USER =====================
 USER_BACKUP_NAME_PREFIX="nextcloud-aio-user"
@@ -39,7 +39,6 @@ USER_BACKUP_NAME_PREFIX="nextcloud-aio-user"
 # Chaque entrée suit le format: /chemin/du/repertoire_utilisateur|datastore
 # Le nom du backup est dérivé du nom du répertoire utilisateur.
 USER_BACKUPS=(
-    "/mnt/user/ncdata/data/admin|ds0"
     "/mnt/user/ncdata/data/alice|ds1"
     "/mnt/user/ncdata/data/bob|ds2"
     "/mnt/user/ncdata/data/charlie|ds3"

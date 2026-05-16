@@ -5,11 +5,9 @@ nextcloud::runner::run_backup() {
     nextcloud::docker::detect_running_container
     nextcloud::runtime::create_run_dirs
     nextcloud::docker::perform_database_dump
-    nextcloud::jobs::build_conf_bundle
+    nextcloud::jobs::build_config_stage
 
-    nextcloud::jobs::run_cli_backup "$DUMP_BACKUP_NAME" "${WORK_RUN_DIR}/dumps" "$DUMP_DATASTORE"
-    nextcloud::jobs::run_cli_backup "$CONF_BACKUP_NAME" "${WORK_RUN_DIR}/conf" "$CONF_DATASTORE"
-    nextcloud::jobs::run_shared_data_backups
+    nextcloud::jobs::run_cli_backup "config" "${WORK_RUN_DIR}/config" "$CONFIG_DATASTORE"
     nextcloud::jobs::run_user_backups
 
     nextcloud::logs::info "Sauvegarde terminée avec succès"

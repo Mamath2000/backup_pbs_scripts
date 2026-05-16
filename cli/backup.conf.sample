@@ -5,8 +5,10 @@
 PBS_CLIENT_MODE="docker"
 # PBS_CLIENT_MODE="apt"
 
-# Référentiel PBS (ex: user@pbs@pbs.local:datastore)
-PBS_REPOSITORY="demo@pbs@demo.local:backup"
+# Référentiel PBS (ex: user@pbs@pbs.local)
+# Le datastore est défini séparément via PBS_DATASTORE_DEFAULT
+PBS_REPOSITORY="demo@pbs@demo.local"
+PBS_DATASTORE_DEFAULT="backup"
 PBS_PASSWORD="demo-password"
 PBS_FINGERPRINT="00:11:22:33:44:55:66:77:88:99:aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99:aa:bb:cc:dd:ee:ff"
 PBS_NAMESPACE="Hosts"
