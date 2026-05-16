@@ -162,6 +162,7 @@ nextcloud::jobs::cli_check() {
     nextcloud::logs::info "Vérification du moteur CLI PBS"
 
     local -a datastores_to_check=()
+    local -a failed_datastores=()
     local datastore user_entry found
 
     datastores_to_check+=("${CONFIG_DATASTORE:-}")
@@ -184,9 +185,22 @@ nextcloud::jobs::cli_check() {
 
     for datastore in "${datastores_to_check[@]}"; do
         if [[ -n "$datastore" ]]; then
-            "$CLI_BACKUP_SCRIPT" --check --datastore "$datastore" --namespace "$PBS_NAMESPACE"
+            nextcloud::logs::info "Test de connexion PBS pour le datastore: $datastore (namespace: ${PBS_NAMESPACE})"
+            if ! "$CLI_BACKUP_SCRIPT" --check --datastore "$datastore" --namespace "$PBS_NAMESPACE"; then
+                nextcloud::logs::error "Échec du test PBS pour le datastore: $datastore"
+                failed_datastores+=("$datastore")
+            fi
         else
-            "$CLI_BACKUP_SCRIPT" --check --namespace "$PBS_NAMESPACE"
+            nextcloud::logs::info "Test de connexion PBS sur le datastore par défaut de la CLI (namespace: ${PBS_NAMESPACE})"
+            if ! "$CLI_BACKUP_SCRIPT" --check --namespace "$PBS_NAMESPACE"; then
+                nextcloud::logs::error "Échec du test PBS sur le datastore par défaut de la CLI"
+                failed_datastores+=("<default>")
+            fi
         fi
     done
+
+    if [[ ${#failed_datastores[@]} -gt 0 ]]; then
+        nextcloud::logs::error "Datastores PBS en échec: ${failed_datastores[*]}"
+        return 1
+    fi
 }

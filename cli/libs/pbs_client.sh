@@ -139,15 +139,18 @@ pbs::run_backup() {
 pbs::check_connection() {
     logs::info "Mode test de connexion à PBS activé."
 
+    pbs::build_repository_full
+
     local datastore="${PBS_DATASTORE_ARG:-${PBS_DATASTORE_DEFAULT:-backup}}"
-    local repo_full="${PBS_REPOSITORY}:${datastore}"
+    local repo_full="$PBS_REPOSITORY_FULL"
+    local effective_ns="${PBS_NAMESPACE_ARG:-${PBS_NAMESPACE:-}}"
     local ns_arg=()
-    [[ -n "${PBS_NAMESPACE_ARG:-${PBS_NAMESPACE:-}}" ]] && ns_arg=(--ns "${PBS_NAMESPACE_ARG:-${PBS_NAMESPACE:-}}")
+    [[ -n "$effective_ns" ]] && ns_arg=(--ns "$effective_ns")
 
     local check_success=0
     local check_output=""
 
-    PBS_REPOSITORY_FULL="$repo_full"
+    logs::info "Test PBS: repository='${repo_full}', datastore='${datastore}'${effective_ns:+, namespace='${effective_ns}'}"
     check_output=$(pbs::run_command list --repository "$repo_full" "${ns_arg[@]}" 2>&1) && check_success=1
 
     echo -e "\n--- Résultat du test PBS ---"
