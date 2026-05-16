@@ -54,7 +54,10 @@ nextcloud::runtime::acquire_lock() {
 
 nextcloud::runtime::create_run_dirs() {
     RUN_TIMESTAMP="$(date '+%Y%m%d%H%M%S')"
-    WORK_RUN_DIR="${WORK_BASE_DIR%/}/${RUN_TIMESTAMP}"
+    WORK_RUN_DIR="${WORK_BASE_DIR%/}/current"
+
+    rm -rf "$WORK_RUN_DIR"
+
     mkdir -p \
         "$WORK_RUN_DIR/config/data-root" \
         "$WORK_RUN_DIR/config/dump" \
