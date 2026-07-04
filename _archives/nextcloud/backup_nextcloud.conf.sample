@@ -1,0 +1,54 @@
+# Exemple de configuration pour backup_nextcloud.sh
+# Copiez ce fichier en backup_nextcloud.conf et adaptez les valeurs à votre environnement
+
+# ===================== BASE DE DONNÉES =====================
+DOCKER_CONTAINER_NAME="nextcloud-aio-database"
+DB_USER="nextcloud"
+DB_NAME="nextcloud_database"
+
+# ===================== SAUVEGARDE LOCALE =====================
+BACKUP_DIR="/mnt/user/docker/nextcloud-aio/backup/"
+DAYS_TO_KEEP=10
+MAX_LOCAL_BACKUPS=2
+FILE_SUFFIX="_nextcloud_backup.sql"
+COMPRESSION_LEVEL=9
+VERIFY_BACKUP=true
+
+# ===================== NEXTCLOUD (config) =====================
+NEXTCLOUD_VOLUME_NAME="nextcloud_aio_nextcloud"
+NEXTCLOUD_CONFIG_PATH="/var/www/html/config/config.php"
+
+# ===================== NEXTCLOUD (données) =====================
+NEXTCLOUD_DATA_ROOT="/mnt/user/ncdata"
+NEXTCLOUD_DATA_PATH="/mnt/user/ncdata"
+NEXTCLOUD_DATA_ARCHIVE_NAME="nextcloud-data.pxar"
+
+# ===================== PBS (Proxmox Backup Server) =====================
+PBS_ENABLED=true
+NEXTCLOUD_AIO_SOURCE_PATH="/mnt/user/docker/nextcloud-aio"
+NEXTCLOUD_AIO_ARCHIVE_NAME="nextcloud-aio-src.pxar"
+PBS_REPOSITORY="user@pbs@192.168.1.10"
+PBS_DATASTORE_DEFAULT="backup"
+PBS_CLIENT_MODE="docker"
+PBS_PASSWORD="votre-mot-de-passe-tres-long"
+PBS_FINGERPRINT="AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99"
+PBS_BACKUP_ID="nextcloud-aio"
+PBS_NAMESPACE="Hosts"
+PBS_ARCHIVE_NAME="nextcloud-aio.pxar"
+
+
+# ===================== MQTT / HOME ASSISTANT =====================
+# Seul `MQTT_HOST` est obligatoire ; autres valeurs par défaut ci-dessous
+# MQTT_ENABLED=false       # default: false
+MQTT_HOST="192.168.1.11"
+# MQTT_PORT="1883"        # default: "1883"
+# MQTT_USER=""            # default: empty
+# MQTT_PASSWORD=""        # default: empty
+
+# ===================== LOGGING =====================
+# Logging: les fichiers sont écrits dans le répertoire "logs" du script.
+LOG_LEVEL="INFO"
+
+# ===================== TEST =====================
+TEST_MODE=false
+TEST_DUMMY_SIZE_MB=50
