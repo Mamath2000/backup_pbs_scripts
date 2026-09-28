@@ -183,21 +183,6 @@ backup::compress() {
     fi
 }
 
-backup::remove_local() {
-    # Taille relevée avant suppression pour les métriques MQTT
-    local size_bytes
-    size_bytes=$(stat -c%s "$BACKUP_PATH" 2>/dev/null || stat -f%z "$BACKUP_PATH")
-    BACKUP_SIZE=$(echo "scale=2; $size_bytes / 1024 / 1024" | bc)
-    COMPRESSION_RATIO=0
-
-    if rm -f "$BACKUP_PATH"; then
-        logs::info "Copie locale supprimée après envoi PBS: $(basename "$BACKUP_PATH")"
-    else
-        logs::warn "Impossible de supprimer la copie locale: $BACKUP_PATH"
-    fi
-    return 0
-}
-
 backup::cleanup_old() {
     logs::info "Nettoyage des anciennes sauvegardes (conservation: ${DAYS_TO_KEEP} jours)"
 

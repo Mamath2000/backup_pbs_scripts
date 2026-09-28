@@ -42,14 +42,8 @@ runner::run_generic() {
             pbs_successful=false
         fi
 
-        # Copie locale inutile une fois sur PBS : suppression immédiate si demandé.
-        # En cas d'échec PBS, la copie locale est conservée comme secours.
-        if [[ "$pbs_successful" == true && "${KEEP_LOCAL_AFTER_PBS:-true}" == "false" ]]; then
-            backup::remove_local
-            backup::cleanup_old
-            BACKUP_STATUS="success"
         # Compression
-        elif ! backup::compress; then
+        if ! backup::compress; then
             BACKUP_STATUS="compression_failed"
             ERROR_MESSAGE="Échec compression"
         else
