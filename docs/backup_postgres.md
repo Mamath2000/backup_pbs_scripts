@@ -50,7 +50,7 @@ Variables de configuration importantes
 - `BACKUP_DIR` : répertoire local de stockage des dumps.
 - `BACKUP_MODE` : `cluster` (pg_basebackup) ou `perdb` (pg_dump). Par défaut `cluster`.
 - `BACKUP_TARGETS` : CSV des bases à sauvegarder en mode `perdb`.
-- `DAYS_TO_KEEP` : rétention locale (suppression des archives plus anciennes).
+- `DAYS_TO_KEEP` : rétention locale (suppression des archives plus anciennes). Les dumps locaux sont nommés `AAAAMMJJ_<backup_id>.tar` : un seul fichier par jour et par base, un nouveau lancement le même jour écrase le précédent (chaque envoi reste un snapshot distinct dans PBS).
 - `COMPRESSION_ENABLED`, `COMPRESSION_LEVEL` : contrôle la compression gzip locale.
 - `VERIFY_BACKUP` : si `true`, exécute des vérifications d'intégrité après dump.
 - `PBS_ENABLED`, `PBS_REPOSITORY`, `PBS_DATASTORE`, `PBS_CLIENT_MODE` (`apt`|`docker`), `PBS_PASSWORD`/`PBS_PASSWORD_FILE` : options d'envoi vers Proxmox Backup Server.

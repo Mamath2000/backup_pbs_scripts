@@ -8,7 +8,9 @@ backup::create_directory() {
 }
 
 backup::prepare_paths() {
-    BACKUP_FILE="${BACKUP_DATE}_${PBS_BACKUP_ID}.tar"
+    # Un fichier par jour: un nouveau lancement le même jour écrase le dump local
+    # (chaque envoi reste un snapshot distinct côté PBS)
+    BACKUP_FILE="${BACKUP_DATE:0:8}_${PBS_BACKUP_ID}.tar"
     BACKUP_PATH="${BACKUP_DIR}${BACKUP_FILE}"
     COMPRESSED_PATH="${BACKUP_PATH}.gz"
     BACKUP_FILE_COMPRESSED="${BACKUP_FILE}.gz"
@@ -168,7 +170,7 @@ backup::compress() {
     local original_size
     original_size=$(stat -f%z "$BACKUP_PATH" 2>/dev/null || stat -c%s "$BACKUP_PATH")
 
-    if gzip -"${COMPRESSION_LEVEL:-6}" "$BACKUP_PATH"; then
+    if gzip -f -"${COMPRESSION_LEVEL:-6}" "$BACKUP_PATH"; then
         local compressed_size
         compressed_size=$(stat -f%z "$COMPRESSED_PATH" 2>/dev/null || stat -c%s "$COMPRESSED_PATH")
 
