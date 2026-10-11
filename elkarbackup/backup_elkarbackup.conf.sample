@@ -37,7 +37,7 @@ VERIFY_BACKUP=true
 # Activation de l'envoi vers PBS
 PBS_ENABLED=true
 
-# PBS_DOCKER_IMAGE removed (image built from repo-level pbs_client/)
+# PBS_DOCKER_IMAGE (optionnel) : défaut mathmath350/pbs-client:latest (github.com/Mamath2000/pbs-client)
 
 # Repository PBS (format proxmox-backup-client):
 # Exemples:

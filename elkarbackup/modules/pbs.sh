@@ -21,8 +21,8 @@ pbs::check_connection() {
         return 1
     fi
 
-    # Utiliser l'image du client PBS (construite depuis pbs_client/) par défaut
-    local image="${PBS_DOCKER_IMAGE:-proxmox-pbs-client:latest}"
+    # Utiliser l'image publiée du client PBS (github.com/Mamath2000/pbs-client) par défaut
+    local image="${PBS_DOCKER_IMAGE:-mathmath350/pbs-client:latest}"
     
     log::info "Repository: ${PBS_REPOSITORY_FULL}"
     log::info "Image Docker: ${image}"
@@ -78,7 +78,7 @@ pbs::backup_paths() {
     source_safe=$(tools::sanitize_name "$source_name")
     backup_safe=$(tools::sanitize_name "$backup_name")
 
-    local image="${PBS_DOCKER_IMAGE:-proxmox-pbs-client:latest}"
+    local image="${PBS_DOCKER_IMAGE:-mathmath350/pbs-client:latest}"
 
     local -a mounts=()
     local -a specs=()
@@ -150,7 +150,7 @@ pbs::run_backup() {
     local backup_id="${PBS_BACKUP_ID:-elkarbackup}"
     local backup_type="${PBS_BACKUP_TYPE:-host}"
     local pbs_namespace="${PBS_NAMESPACE:-}"
-    local image="${PBS_DOCKER_IMAGE:-proxmox-pbs-client:latest}"
+    local image="${PBS_DOCKER_IMAGE:-mathmath350/pbs-client:latest}"
 
     # Vérifier et construire l'image si nécessaire
     if ! pbs::ensure_image; then
@@ -267,20 +267,21 @@ EOF
 }
 
 pbs::ensure_image() {
-    local pbs_docker_image="${PBS_DOCKER_IMAGE:-proxmox-pbs-client:latest}"
+    local pbs_docker_image="${PBS_DOCKER_IMAGE:-mathmath350/pbs-client:latest}"
 
     if docker image inspect "$pbs_docker_image" >/dev/null 2>&1; then
         log::debug "Image PBS déjà présente: $pbs_docker_image"
         return 0
     fi
 
-    log::info "Image PBS non trouvée, construction via $REPO_ROOT/pbs_client/build_pbs_client.sh"
+    # image publiée (repo github.com/Mamath2000/pbs-client)
+    log::info "Image PBS non trouvée, téléchargement de $pbs_docker_image"
 
-    if "$REPO_ROOT/pbs_client/build_pbs_client.sh"; then
-        log::info "Image '$pbs_docker_image' construite avec succès"
+    if docker pull "$pbs_docker_image"; then
+        log::info "Image '$pbs_docker_image' téléchargée"
         return 0
     else
-        log::error "Échec de la construction de l'image '$pbs_docker_image' via $REPO_ROOT/pbs_client/build_pbs_client.sh"
+        log::error "Échec du téléchargement de l'image '$pbs_docker_image'"
         return 1
     fi
 }

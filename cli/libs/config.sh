@@ -27,7 +27,7 @@ config::load() {
 
     require_var PBS_REPOSITORY
     PBS_CLIENT_MODE="${PBS_CLIENT_MODE:-apt}"
-    PBS_DOCKER_IMAGE="${PBS_DOCKER_IMAGE:-proxmox-pbs-client:latest}"
+    PBS_DOCKER_IMAGE="${PBS_DOCKER_IMAGE:-mathmath350/pbs-client:latest}"
     PBS_BACKUP_TYPE="${PBS_BACKUP_TYPE:-host}"
     PBS_DATASTORE_DEFAULT="${PBS_DATASTORE_DEFAULT:-${PBS_DATASTORE:-backup}}"
     PBS_DATASTORE="${PBS_DATASTORE:-$PBS_DATASTORE_DEFAULT}"

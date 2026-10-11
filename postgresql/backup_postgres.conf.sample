@@ -42,7 +42,7 @@ PBS_DATASTORE_DEFAULT="ds1"         # Datastore PBS (obligatoire si PBS_ENABLED)
 PBS_NAMESPACE=""                    # Namespace PBS (optionnel)
 PBS_CLIENT_MODE="apt"               # apt|docker (optionnel, défaut: apt)
 PBS_CLIENT="proxmox-backup-client"  # Binaire PBS (optionnel, utilisé si mode apt)
-PBS_DOCKER_IMAGE="proxmox-pbs-client:latest" # Image docker PBS (optionnel, utilisé si mode docker)
+PBS_DOCKER_IMAGE="mathmath350/pbs-client:latest" # Image docker PBS (optionnel, utilisé si mode docker)
 PBS_PASSWORD=""                     # Mot de passe PBS 
 PBS_FINGERPRINT=""                  # Empreinte PBS (optionnel)
 

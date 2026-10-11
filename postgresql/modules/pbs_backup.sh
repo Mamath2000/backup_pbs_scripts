@@ -33,7 +33,7 @@ pbs::exec_backup() {
     local pbs_namespace="${PBS_NAMESPACE:-}"
     local pbs_client="${PBS_CLIENT:-proxmox-backup-client}"
     local pbs_client_mode="${PBS_CLIENT_MODE:-apt}"
-    local pbs_docker_image="${PBS_DOCKER_IMAGE:-proxmox-pbs-client:latest}"
+    local pbs_docker_image="${PBS_DOCKER_IMAGE:-mathmath350/pbs-client:latest}"
 
     if [[ -z "${PBS_REPOSITORY:-}" ]]; then
         logs::error "PBS_REPOSITORY non défini"

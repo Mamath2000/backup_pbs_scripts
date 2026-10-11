@@ -90,7 +90,7 @@ Le fichier doit exister et avoir les droits **600** (vérifié au démarrage).
 | `PBS_FINGERPRINT` | — | Empreinte TLS du serveur PBS |
 | `PBS_NAMESPACE` | — | Namespace PBS (ex: `Hosts`) |
 | `PBS_CLIENT_MODE` | `apt` | `apt` ou `docker` |
-| `PBS_DOCKER_IMAGE` | `proxmox-pbs-client:latest` | Image Docker à utiliser en mode `docker` |
+| `PBS_DOCKER_IMAGE` | `mathmath350/pbs-client:latest` | Image Docker à utiliser en mode `docker` |
 | `PBS_CHANGE_DETECTION_MODE` | — | Mode de détection des changements (`legacy`, `data`, `metadata`) |
 | `PBS_CLIENT_EXTRA_ARGS` | — | Arguments supplémentaires passés à `proxmox-backup-client` |
 | `MQTT_ENABLED` | `false` | Activer les notifications MQTT |
@@ -116,17 +116,9 @@ Le datastore est déterminé dans cet ordre de priorité :
 
 ## Client Docker PBS
 
-Quand `PBS_CLIENT_MODE=docker`, le script utilise l'image `proxmox-pbs-client:latest` construite depuis `pbs_client/` à la racine du dépôt.
-
-Si l'image est absente, elle est **automatiquement construite** via `pbs_client/build_pbs_client.sh`.
-
-**Construction manuelle :**
-```bash
-cd pbs_client/
-./build_pbs_client.sh
-# ou
-docker compose build
-```
+Quand `PBS_CLIENT_MODE=docker`, le script utilise l'image publiée `mathmath350/pbs-client:latest`
+(repo [pbs-client](https://github.com/Mamath2000/pbs-client), amd64). Si elle est absente, elle est
+**téléchargée** (`docker pull`) ; `PBS_DOCKER_IMAGE` permet d'en choisir une autre.
 
 En mode Docker, le répertoire source est monté en lecture seule dans le conteneur :
 ```

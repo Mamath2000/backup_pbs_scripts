@@ -45,7 +45,7 @@ Script dédié à la sauvegarde de l'instance **Nextcloud All-In-One** (PostgreS
                                  • fichier SQL le plus récent (symlink ou copie)
                                  • fichier config.php le plus récent
                                  • metadata.json
-8. Sauvegarde PBS            — docker run proxmox-pbs-client:latest backup
+8. Sauvegarde PBS            — docker run mathmath350/pbs-client:latest backup
                                nextcloud-aio.pxar:/data
                                nextcloud-aio-src.pxar:/ncaio
                                nextcloud-data.pxar:/ncdata
@@ -117,15 +117,7 @@ PBS_DATASTORE_DEFAULT="ds0"
 
 ## Client Docker PBS
 
-L'image `proxmox-pbs-client:latest` est utilisée pour exécuter `proxmox-backup-client` sans installation système.
-
-Si l'image est absente, elle est **automatiquement construite** depuis `pbs_client/`.
-
-**Construction manuelle :**
-```bash
-cd pbs_client/
-./build_pbs_client.sh
-```
+L'image publiée `mathmath350/pbs-client:latest` (repo [pbs-client](https://github.com/Mamath2000/pbs-client)) exécute `proxmox-backup-client` sans installation système. Si elle est absente, elle est **téléchargée** (`docker pull`).
 
 La commande Docker exécutée lors du backup :
 ```bash
@@ -136,7 +128,7 @@ docker run --rm --network host \
   -v "$STAGING_DIR":/data:ro \
   -v "$NEXTCLOUD_AIO_SOURCE_PATH":/ncaio:ro \
   -v "$NEXTCLOUD_DATA_PATH":/ncdata:ro \
-  proxmox-pbs-client:latest \
+  mathmath350/pbs-client:latest \
   backup \
     nextcloud-aio.pxar:/data \
     nextcloud-aio-src.pxar:/ncaio \

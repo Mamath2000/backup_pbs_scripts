@@ -40,7 +40,7 @@ Script dédié à la sauvegarde de l'instance **ElkarBackup** (application + Mar
                                → BACKUP_DIR/YYYYMMDDHHMM_<db>_elkar_backup.sql
 4. Nettoyage local           — suppression des exports anciens (DAYS_TO_KEEP / MAX_LOCAL_BACKUPS)
 5. Staging dir               — création d'un répertoire temporaire avec metadata.json
-6. Sauvegarde PBS            — docker run proxmox-pbs-client:latest backup
+6. Sauvegarde PBS            — docker run mathmath350/pbs-client:latest backup
                                source_safe.pxar:/source backup_safe.pxar:/backups
 7. Nettoyage staging         — suppression du répertoire temporaire
 8. Notification MQTT         — si MQTT_ENABLED=true
@@ -108,15 +108,7 @@ PBS_DATASTORE_DEFAULT="ds3"
 
 ## Client Docker PBS
 
-L'image `proxmox-pbs-client:latest` est utilisée pour exécuter `proxmox-backup-client` sans installation système.
-
-Si l'image est absente, elle est **automatiquement construite** depuis `pbs_client/`.
-
-**Construction manuelle :**
-```bash
-cd pbs_client/
-./build_pbs_client.sh
-```
+L'image publiée `mathmath350/pbs-client:latest` (repo [pbs-client](https://github.com/Mamath2000/pbs-client)) exécute `proxmox-backup-client` sans installation système. Si elle est absente, elle est **téléchargée** (`docker pull`).
 
 La commande Docker exécutée lors du backup :
 ```bash
@@ -128,7 +120,7 @@ docker run --rm --network host \
   [-e PBS_PASSWORD_FILE=/pbs_password] \
   -v "$BACKUP_SOURCE_DIR":/source:ro \
   -v "$BACKUP_DIR":/backups:ro \
-  proxmox-pbs-client:latest \
+  mathmath350/pbs-client:latest \
   backup source_safe.pxar:/source backup_safe.pxar:/backups \
     --backup-id "$PBS_BACKUP_ID" \
     --backup-type host \

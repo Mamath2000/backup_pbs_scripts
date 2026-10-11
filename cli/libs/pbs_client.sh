@@ -11,15 +11,9 @@ pbs::ensure_image() {
         return 0
     fi
 
-    local build_script="${SCRIPT_DIR}/../pbs_client/build_pbs_client.sh"
-
-    if [[ ! -f "$build_script" ]]; then
-        logs::error "Image PBS absente et script de build introuvable: $build_script"
-        return 1
-    fi
-
-    logs::warn "Image PBS absente, construction via ${build_script}"
-    bash "$build_script"
+    # image publiée (repo github.com/Mamath2000/pbs-client)
+    logs::warn "Image PBS absente, téléchargement de ${PBS_DOCKER_IMAGE}"
+    docker pull "$PBS_DOCKER_IMAGE"
 }
 
 pbs::build_repository_full() {
